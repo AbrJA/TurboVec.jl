@@ -33,7 +33,7 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1
@@ -50,7 +50,7 @@ jobs:
         with:
           version: '1'
           arch: aarch64
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
   validate:
@@ -61,7 +61,7 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: Validate encode/search against the frozen Rust reference
         run: julia --project=. dev/validate.jl
@@ -73,7 +73,7 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: Test with --check-bounds=yes --depwarn=error
         run: julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes", "--depwarn=error"])'
@@ -85,7 +85,7 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: Static analysis of the public entry points
         run: julia --project=. -e 'using Pkg; Pkg.test(; test_args = ["jet"])'
@@ -97,7 +97,7 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: Check formatting
         run: julia --project=. -e 'using Pkg; Pkg.test(; test_args = ["format"])'
@@ -110,7 +110,7 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: Run the Julia benchmark harness
         run: julia --project=. -t auto dev/bench2.jl
