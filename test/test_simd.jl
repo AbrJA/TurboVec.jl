@@ -108,5 +108,44 @@
                                     0, idx.n_blocks, pmask,
                                     Vector{Float32}(undef, 64))
         @test TurboVec.sorted_results(h1) == TurboVec.sorted_results(h2)
+
+        # The AVX2 two-query pair kernel must equal two scalar scans for
+        # every geometry: no flush (ng < 256), flush + remainder (ng = 384),
+        # and flush exactly on the last group (ng = 512), masked or not.
+        for (dim, bits, n) in ((128, 4, 130), (768, 4, 65), (2048, 2, 65))
+            pidx = TurboQuantIndex(dim, bits)
+            P = rand_rows(rng, n, dim)
+            add!(pidx, P)
+            qA = P[3, :]
+            qB = P[5, :]
+            prepA = TurboVec._prepare_lut(pidx, qA, zeros(Float32, dim),
+                                          zeros(Float32, dim))
+            prepB = TurboVec._prepare_lut(pidx, qB, zeros(Float32, dim),
+                                          zeros(Float32, dim))
+            combA = TurboVec._build_comb(prepA.table, prepA.ng)
+            combB = TurboVec._build_comb(prepB.table, prepB.ng)
+            m = falses(n)
+            m[1:3:end] .= true
+            for mask in (nothing, TurboVec.pack_mask(m))
+                hA = TurboVec.TopK(20)
+                hB = TurboVec.TopK(20)
+                TurboVec._scan_two_avx2!(hA, hB, prepA, prepB, pidx.codes,
+                                         pidx.scales, pidx.n, pidx.n_blocks, mask,
+                                         Vector{Float32}(undef, 64),
+                                         Vector{Float32}(undef, 64))
+                rA = TurboVec.TopK(20)
+                rB = TurboVec.TopK(20)
+                TurboVec._scan_blocks_scalar!(rA, combA, pidx.codes, pidx.scales,
+                                              prepA.ng, pidx.n, prepA.bias,
+                                              prepA.scale, 0, pidx.n_blocks,
+                                              Vector{Int32}(undef, 32), mask)
+                TurboVec._scan_blocks_scalar!(rB, combB, pidx.codes, pidx.scales,
+                                              prepB.ng, pidx.n, prepB.bias,
+                                              prepB.scale, 0, pidx.n_blocks,
+                                              Vector{Int32}(undef, 32), mask)
+                @test TurboVec.sorted_results(hA) == TurboVec.sorted_results(rA)
+                @test TurboVec.sorted_results(hB) == TurboVec.sorted_results(rB)
+            end
+        end
     end
 end

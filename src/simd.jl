@@ -78,6 +78,145 @@ function scan_block_avx2!(codes::Ptr{UInt8}, lut::Ptr{UInt8}, ng::Int,
     nothing
 end
 
+# Two queries per code pass on AVX2: one 32-code block per iteration is
+# shuffled against both queries' nibble tables, so the panel of per-group
+# indices is computed once and the codes are loaded once. Per-lane sums
+# accumulate in u16 and are flushed into u32 every 256 groups
+# (2 * 127 * 256 = 65024 < 2^16), keeping the final integer totals and
+# the single `scale * Float32(total) + bias` bit-identical to the scalar
+# kernel.
+const SCAN_PAIR2_IR_AVX2 = """
+$_PSHUFB_DECL
+define void @scan_pair2(ptr %codes, ptr %la, ptr %lb, i64 %ng,
+                        float %sa, float %ba, float %sb, float %bb,
+                        ptr %oa, ptr %ob) #0 {
+entry:
+  br label %loop
+
+loop:
+  %g = phi i64 [ 0, %entry ], [ %gn, %cont ]
+  %a0 = phi <16 x i16> [ zeroinitializer, %entry ], [ %a0c, %cont ]
+  %a1 = phi <16 x i16> [ zeroinitializer, %entry ], [ %a1c, %cont ]
+  %b0 = phi <16 x i16> [ zeroinitializer, %entry ], [ %b0c, %cont ]
+  %b1 = phi <16 x i16> [ zeroinitializer, %entry ], [ %b1c, %cont ]
+  %A0 = phi <16 x i32> [ zeroinitializer, %entry ], [ %A0c, %cont ]
+  %A1 = phi <16 x i32> [ zeroinitializer, %entry ], [ %A1c, %cont ]
+  %B0 = phi <16 x i32> [ zeroinitializer, %entry ], [ %B0c, %cont ]
+  %B1 = phi <16 x i32> [ zeroinitializer, %entry ], [ %B1c, %cont ]
+  %off = mul i64 %g, 32
+  %cp = getelementptr i8, ptr %codes, i64 %off
+  %ta = getelementptr i8, ptr %la, i64 %off
+  %ta2 = getelementptr i8, ptr %ta, i64 16
+  %tb = getelementptr i8, ptr %lb, i64 %off
+  %tb2 = getelementptr i8, ptr %tb, i64 16
+  %v = load <32 x i8>, ptr %cp, align 1
+  %hi.idx = lshr <32 x i8> %v, splat (i8 4)
+  %lo.idx = and <32 x i8> %v, splat (i8 15)
+  %har = load <16 x i8>, ptr %ta, align 1
+  %hat = shufflevector <16 x i8> %har, <16 x i8> poison, <32 x i32> <$_BROADCAST_MASK>
+  %lar = load <16 x i8>, ptr %ta2, align 1
+  %lat = shufflevector <16 x i8> %lar, <16 x i8> poison, <32 x i32> <$_BROADCAST_MASK>
+  %hbr = load <16 x i8>, ptr %tb, align 1
+  %hbt = shufflevector <16 x i8> %hbr, <16 x i8> poison, <32 x i32> <$_BROADCAST_MASK>
+  %lbr = load <16 x i8>, ptr %tb2, align 1
+  %lbt = shufflevector <16 x i8> %lbr, <16 x i8> poison, <32 x i32> <$_BROADCAST_MASK>
+  %hhA = call <32 x i8> @llvm.x86.avx2.pshuf.b(<32 x i8> %hat, <32 x i8> %hi.idx)
+  %llA = call <32 x i8> @llvm.x86.avx2.pshuf.b(<32 x i8> %lat, <32 x i8> %lo.idx)
+  %hhB = call <32 x i8> @llvm.x86.avx2.pshuf.b(<32 x i8> %hbt, <32 x i8> %hi.idx)
+  %llB = call <32 x i8> @llvm.x86.avx2.pshuf.b(<32 x i8> %lbt, <32 x i8> %lo.idx)
+  %sA = add <32 x i8> %hhA, %llA
+  %sB = add <32 x i8> %hhB, %llB
+  %sA0 = shufflevector <32 x i8> %sA, <32 x i8> poison, <16 x i32> <$_LOWHALF_MASK>
+  %sA1 = shufflevector <32 x i8> %sA, <32 x i8> poison, <16 x i32> <$_HIGHHALF_MASK>
+  %sB0 = shufflevector <32 x i8> %sB, <32 x i8> poison, <16 x i32> <$_LOWHALF_MASK>
+  %sB1 = shufflevector <32 x i8> %sB, <32 x i8> poison, <16 x i32> <$_HIGHHALF_MASK>
+  %wA0 = zext <16 x i8> %sA0 to <16 x i16>
+  %wA1 = zext <16 x i8> %sA1 to <16 x i16>
+  %wB0 = zext <16 x i8> %sB0 to <16 x i16>
+  %wB1 = zext <16 x i8> %sB1 to <16 x i16>
+  %a0n = add <16 x i16> %a0, %wA0
+  %a1n = add <16 x i16> %a1, %wA1
+  %b0n = add <16 x i16> %b0, %wB0
+  %b1n = add <16 x i16> %b1, %wB1
+  %gn = add i64 %g, 1
+  %dof = and i64 %gn, 255
+  %doflush = icmp eq i64 %dof, 0
+  br i1 %doflush, label %flush, label %cont
+
+flush:
+  %eA0 = zext <16 x i16> %a0n to <16 x i32>
+  %eA1 = zext <16 x i16> %a1n to <16 x i32>
+  %eB0 = zext <16 x i16> %b0n to <16 x i32>
+  %eB1 = zext <16 x i16> %b1n to <16 x i32>
+  %A0b = add <16 x i32> %A0, %eA0
+  %A1b = add <16 x i32> %A1, %eA1
+  %B0b = add <16 x i32> %B0, %eB0
+  %B1b = add <16 x i32> %B1, %eB1
+  br label %cont
+
+cont:
+  %A0c = phi <16 x i32> [ %A0b, %flush ], [ %A0, %loop ]
+  %A1c = phi <16 x i32> [ %A1b, %flush ], [ %A1, %loop ]
+  %B0c = phi <16 x i32> [ %B0b, %flush ], [ %B0, %loop ]
+  %B1c = phi <16 x i32> [ %B1b, %flush ], [ %B1, %loop ]
+  %a0c = phi <16 x i16> [ zeroinitializer, %flush ], [ %a0n, %loop ]
+  %a1c = phi <16 x i16> [ zeroinitializer, %flush ], [ %a1n, %loop ]
+  %b0c = phi <16 x i16> [ zeroinitializer, %flush ], [ %b0n, %loop ]
+  %b1c = phi <16 x i16> [ zeroinitializer, %flush ], [ %b1n, %loop ]
+  %done = icmp eq i64 %gn, %ng
+  br i1 %done, label %fin, label %loop
+
+fin:
+  %feA0 = zext <16 x i16> %a0c to <16 x i32>
+  %feA1 = zext <16 x i16> %a1c to <16 x i32>
+  %feB0 = zext <16 x i16> %b0c to <16 x i32>
+  %feB1 = zext <16 x i16> %b1c to <16 x i32>
+  %fA0i = add <16 x i32> %A0c, %feA0
+  %fA1i = add <16 x i32> %A1c, %feA1
+  %fB0i = add <16 x i32> %B0c, %feB0
+  %fB1i = add <16 x i32> %B1c, %feB1
+  %fA0 = uitofp <16 x i32> %fA0i to <16 x float>
+  %fA1 = uitofp <16 x i32> %fA1i to <16 x float>
+  %fB0 = uitofp <16 x i32> %fB0i to <16 x float>
+  %fB1 = uitofp <16 x i32> %fB1i to <16 x float>
+  %sav = insertelement <16 x float> poison, float %sa, i32 0
+  %savv = shufflevector <16 x float> %sav, <16 x float> poison, <16 x i32> zeroinitializer
+  %bav = insertelement <16 x float> poison, float %ba, i32 0
+  %bavv = shufflevector <16 x float> %bav, <16 x float> poison, <16 x i32> zeroinitializer
+  %sbv = insertelement <16 x float> poison, float %sb, i32 0
+  %sbvv = shufflevector <16 x float> %sbv, <16 x float> poison, <16 x i32> zeroinitializer
+  %bbv = insertelement <16 x float> poison, float %bb, i32 0
+  %bbvv = shufflevector <16 x float> %bbv, <16 x float> poison, <16 x i32> zeroinitializer
+  %mA0 = fmul <16 x float> %fA0, %savv
+  %mA1 = fmul <16 x float> %fA1, %savv
+  %mB0 = fmul <16 x float> %fB0, %sbvv
+  %mB1 = fmul <16 x float> %fB1, %sbvv
+  %rA0 = fadd <16 x float> %mA0, %bavv
+  %rA1 = fadd <16 x float> %mA1, %bavv
+  %rB0 = fadd <16 x float> %mB0, %bbvv
+  %rB1 = fadd <16 x float> %mB1, %bbvv
+  store <16 x float> %rA0, ptr %oa, align 4
+  %oa1 = getelementptr float, ptr %oa, i64 16
+  store <16 x float> %rA1, ptr %oa1, align 4
+  store <16 x float> %rB0, ptr %ob, align 4
+  %ob1 = getelementptr float, ptr %ob, i64 16
+  store <16 x float> %rB1, ptr %ob1, align 4
+  ret void
+}
+
+attributes #0 = { "target-features"="+avx2" }
+"""
+
+function scan_pair2_avx2!(codes::Ptr{UInt8}, la::Ptr{UInt8}, lb::Ptr{UInt8},
+                          ng::Int, sa::Float32, ba::Float32, sb::Float32,
+                          bb::Float32, oa::Ptr{Float32}, ob::Ptr{Float32})
+    Base.llvmcall((SCAN_PAIR2_IR_AVX2, "scan_pair2"), Cvoid,
+                  Tuple{Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Int, Float32,
+                        Float32, Float32, Float32, Ptr{Float32}, Ptr{Float32}},
+                  codes, la, lb, ng, sa, ba, sb, bb, oa, ob)
+    nothing
+end
+
 function _cpu_feature(name::Symbol)
     Sys.ARCH === :x86_64 || return false
     cp = Base.BinaryPlatforms.CPUID
