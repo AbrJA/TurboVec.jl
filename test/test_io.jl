@@ -59,6 +59,16 @@
         write(bad, corrupt)
         @test_throws InvalidFileFormat load_index(bad)
 
+        # fast writes skip the fsyncs, warn, and still round-trip
+        fidx = TurboQuantIndex(dim, 4)
+        add!(fidx, X)
+        fpath = joinpath(dir, "fast.tv")
+        fmap = joinpath(dir, "fast.tvim")
+        @test_logs (:warn, r"fast write") write_index(fpath, fidx; fast = true)
+        @test load_index(fpath) == fidx
+        @test_logs (:warn, r"fast write") write_idmap(fmap, imap; fast = true)
+        @test load_idmap(fmap) == imap
+
         # empty index with committed dim round-trips
         epath = joinpath(dir, "empty.tv")
         eidx = TurboQuantIndex(dim, 2)

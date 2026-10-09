@@ -42,14 +42,14 @@ function _fsync_dir(dir::AbstractString)
     nothing
 end
 
-function _write_atomic(f::F, path::AbstractString) where {F}
+function _write_atomic(f::F, path::AbstractString; fast::Bool = false) where {F}
     dir = dirname(abspath(path))
     isdir(dir) || throw(ArgumentError("directory does not exist: $dir"))
     tmp, io = mktemp(dir)
     try
         f(io)
         flush(io)
-        _fsync(io)
+        fast || _fsync(io)
         close(io)
         mv(tmp, path; force = true)
     catch
@@ -57,7 +57,7 @@ function _write_atomic(f::F, path::AbstractString) where {F}
         rm(tmp; force = true)
         rethrow()
     end
-    _fsync_dir(dir)
+    fast || _fsync_dir(dir)
     nothing
 end
 
@@ -314,13 +314,18 @@ end
 from_bytes(::Type{IdMapIndex}, bytes::AbstractVector{UInt8}) = load_idmap(IOBuffer(bytes))
 
 """
-    write_index(path, index)
+    write_index(path, index; fast = false)
 
 Persist a [`TurboQuantIndex`](@ref) to a single versioned file
-(fsynced, atomically renamed into place).
+(fsynced, atomically renamed into place). `fast = true` skips the
+fsyncs for cache-style files that can be regenerated: the rename stays
+atomic, but a completed write may not survive a power loss (a warning
+is emitted).
 """
-function write_index(path::AbstractString, index::TurboQuantIndex)
-    _write_atomic(path) do io
+function write_index(path::AbstractString, index::TurboQuantIndex;
+                     fast::Bool = false)
+    fast && @warn "fast write: skipping fsync; the file may not survive a power loss" path
+    _write_atomic(path; fast = fast) do io
         write_index(io, index)
     end
     nothing
@@ -330,12 +335,14 @@ end
 load_index(path::AbstractString) = open(load_index, path, "r")
 
 """
-    write_idmap(path, index)
+    write_idmap(path, index; fast = false)
 
-Persist an [`IdMapIndex`](@ref), external ids included.
+Persist an [`IdMapIndex`](@ref), external ids included. See
+[`write_index`](@ref) for the `fast` durability trade-off.
 """
-function write_idmap(path::AbstractString, index::IdMapIndex)
-    _write_atomic(path) do io
+function write_idmap(path::AbstractString, index::IdMapIndex; fast::Bool = false)
+    fast && @warn "fast write: skipping fsync; the file may not survive a power loss" path
+    _write_atomic(path; fast = fast) do io
         write_idmap(io, index)
     end
     nothing
