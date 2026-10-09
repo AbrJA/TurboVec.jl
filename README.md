@@ -205,6 +205,30 @@ never exists. The first version of this port was 10–20x slower on
 search; the remaining gap is kernel micro-optimization and cache
 behavior, not algorithm.
 
+## Optimization log
+
+Accepted (each in a commit under `TurboVec/`): the 32-vector blocked code
+layout with u8 nibble LUTs and integer accumulation; AVX2 `vpshufb` and
+AVX-512BW pair kernels via `Base.llvmcall` with a bit-identical scalar
+fallback; radix-8 block-Hadamard rotation; fused rotate+quantize per row
+(no `dim × n` intermediate); and two queries per code pass
+(`scan_pair2`), which cut batch search ~1.6x.
+
+Measured and rejected, with the numbers that killed them (100k × 768
+4-bit scan, 1 thread):
+
+| idea | result |
+| --- | --- |
+| u16 low/high-byte accumulator trick (Rust-style, no widening) | exact, but 3.42 ms vs 3.35 ms — no gain |
+| software prefetch 256 B / 512 B / 1 KiB ahead | 3.28 / 4.40 / 3.62 ms — ≤2% at best |
+| Q=4 query blocking | 3.03 ms/query vs 1.89 for Q=2 — register spills |
+| full-matrix transpose before encode | `permutedims` 3.8–5.2 µs/row vs 1.3–1.8 µs/row saved |
+| two-level 4-bit boundary scan | 4.6 vs 5.0 ns/coord ≈ 2% of encode |
+
+SMT helps this latency-bound scan: `-t 16` (8 physical cores × 2
+threads) beats `-t 8` on the batch cells (768/4-bit: 0.34 vs 0.46
+ms/query), so leave thread counts above the physical core count.
+
 ## Development tooling
 
 `dev/` holds the cross-validation and benchmark harnesses used to build
