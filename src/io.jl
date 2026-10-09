@@ -163,49 +163,56 @@ function _read_index_body(io::IO, kind::UInt8, bits::Int, dim::Int, n::Int,
     index
 end
 
-"""
-    to_bytes(index) -> Vector{UInt8}
+"""Exact on-disk length of a positional index (header + body)."""
+function serialized_len(index::TurboQuantIndex)
+    total = 27  # magic 8 + kind/bits/cal 3 + dim 8 + n 8
+    index.dim == 0 && return total
+    n_levels = 1 << index.bit_width
+    total += 4 * n_levels                      # centroids
+    total += 4 * (n_levels - 1)                # boundaries
+    isempty(index.tqplus_shift) || (total += 8 * index.dim)  # shift + scale
+    total += 4 * index.n                       # per-vector scales
+    total += blocked_len(index.n, index.bit_width, index.dim)
+    total
+end
 
-Serialize a [`TurboQuantIndex`](@ref) to an in-memory buffer using the
-same versioned layout as [`write_index`](@ref).
-"""
-function to_bytes(index::TurboQuantIndex)
+"""Exact on-disk length of an id-map index (positional image + id table)."""
+serialized_len(index::IdMapIndex) = serialized_len(index.inner) + 8 * index.inner.n
+
+"""Serialize a [`TurboQuantIndex`](@ref) to an IO sink in the file layout."""
+function write_index(io::IO, index::TurboQuantIndex)
     _check_endian()
-    io = IOBuffer()
     _write_header(io, TV_KIND_INDEX, index.dim, index.bit_width, index.n,
                   !isempty(index.tqplus_shift))
     _write_index_body(io, index)
-    take!(io)
+    nothing
 end
 
-"""Deserialize a [`TurboQuantIndex`](@ref) produced by [`to_bytes`](@ref)."""
-function from_bytes(::Type{TurboQuantIndex}, bytes::AbstractVector{UInt8})
+"""Serialize an [`IdMapIndex`](@ref) to an IO sink in the file layout."""
+function write_idmap(io::IO, index::IdMapIndex)
     _check_endian()
-    io = IOBuffer(bytes)
-    kind, bits, dim, n, calibrated = _read_header(io)
-    kind == TV_KIND_INDEX ||
-        throw(InvalidFileFormat("buffer holds an IdMapIndex, use from_bytes(IdMapIndex, ...)"))
-    _read_index_body(io, kind, bits, dim, n, calibrated)
-end
-
-"""Serialize an [`IdMapIndex`](@ref), external ids included."""
-function to_bytes(index::IdMapIndex)
-    _check_endian()
-    io = IOBuffer()
     _write_header(io, TV_KIND_IDMAP, index.inner.dim, index.inner.bit_width,
                   index.inner.n, !isempty(index.inner.tqplus_shift))
     _write_index_body(io, index.inner)
     write(io, index.slot_to_id)
-    take!(io)
+    nothing
 end
 
-"""Deserialize an [`IdMapIndex`](@ref) produced by [`to_bytes`](@ref)."""
-function from_bytes(::Type{IdMapIndex}, bytes::AbstractVector{UInt8})
+"""Read a [`TurboQuantIndex`](@ref) from an IO source."""
+function load_index(io::IO)
     _check_endian()
-    io = IOBuffer(bytes)
+    kind, bits, dim, n, calibrated = _read_header(io)
+    kind == TV_KIND_INDEX ||
+        throw(InvalidFileFormat("stream holds an IdMapIndex, use load_idmap"))
+    _read_index_body(io, kind, bits, dim, n, calibrated)
+end
+
+"""Read an [`IdMapIndex`](@ref) from an IO source."""
+function load_idmap(io::IO)
+    _check_endian()
     kind, bits, dim, n, calibrated = _read_header(io)
     kind == TV_KIND_IDMAP ||
-        throw(InvalidFileFormat("buffer holds a positional index, use from_bytes(TurboQuantIndex, ...)"))
+        throw(InvalidFileFormat("stream holds a positional index, use load_index"))
     index = _read_index_body(io, kind, bits, dim, n, calibrated)
     slot_to_id = Vector{UInt64}(undef, n)
     read!(io, slot_to_id)
@@ -213,11 +220,26 @@ function from_bytes(::Type{IdMapIndex}, bytes::AbstractVector{UInt8})
     sizehint!(id_to_slot, n)
     @inbounds for (slot, id) in enumerate(slot_to_id)
         haskey(id_to_slot, id) &&
-            throw(InvalidFileFormat("duplicate id $id in buffer"))
+            throw(InvalidFileFormat("duplicate id $id in file"))
         id_to_slot[id] = slot
     end
     IdMapIndex(index, slot_to_id, id_to_slot)
 end
+
+"""
+    to_bytes(index) -> Vector{UInt8}
+
+Serialize an index to an in-memory buffer using the same versioned
+layout as [`write_index`](@ref).
+"""
+to_bytes(index::TurboQuantIndex) = (io = IOBuffer(); write_index(io, index); take!(io))
+to_bytes(index::IdMapIndex) = (io = IOBuffer(); write_idmap(io, index); take!(io))
+
+"""Deserialize an index produced by [`to_bytes`](@ref)."""
+from_bytes(::Type{TurboQuantIndex}, bytes::AbstractVector{UInt8}) =
+    load_index(IOBuffer(bytes))
+from_bytes(::Type{IdMapIndex}, bytes::AbstractVector{UInt8}) =
+    load_idmap(IOBuffer(bytes))
 
 """
     write_index(path, index)
@@ -226,25 +248,14 @@ Persist a [`TurboQuantIndex`](@ref) to a single versioned file
 (fsynced, atomically renamed into place).
 """
 function write_index(path::AbstractString, index::TurboQuantIndex)
-    _check_endian()
     _write_atomic(path) do io
-        _write_header(io, TV_KIND_INDEX, index.dim, index.bit_width, index.n,
-                      !isempty(index.tqplus_shift))
-        _write_index_body(io, index)
+        write_index(io, index)
     end
     nothing
 end
 
 """Load a [`TurboQuantIndex`](@ref) written by [`write_index`](@ref)."""
-function load_index(path::AbstractString)
-    _check_endian()
-    open(path, "r") do io
-        kind, bits, dim, n, calibrated = _read_header(io)
-        kind == TV_KIND_INDEX ||
-            throw(InvalidFileFormat("file holds an IdMapIndex, use load_idmap"))
-        _read_index_body(io, kind, bits, dim, n, calibrated)
-    end
-end
+load_index(path::AbstractString) = open(load_index, path, "r")
 
 """
     write_idmap(path, index)
@@ -252,33 +263,11 @@ end
 Persist an [`IdMapIndex`](@ref), external ids included.
 """
 function write_idmap(path::AbstractString, index::IdMapIndex)
-    _check_endian()
     _write_atomic(path) do io
-        _write_header(io, TV_KIND_IDMAP, index.inner.dim, index.inner.bit_width,
-                      index.inner.n, !isempty(index.inner.tqplus_shift))
-        _write_index_body(io, index.inner)
-        write(io, index.slot_to_id)
+        write_idmap(io, index)
     end
     nothing
 end
 
 """Load an [`IdMapIndex`](@ref) written by [`write_idmap`](@ref)."""
-function load_idmap(path::AbstractString)
-    _check_endian()
-    open(path, "r") do io
-        kind, bits, dim, n, calibrated = _read_header(io)
-        kind == TV_KIND_IDMAP ||
-            throw(InvalidFileFormat("file holds a positional index, use load_index"))
-        index = _read_index_body(io, kind, bits, dim, n, calibrated)
-        slot_to_id = Vector{UInt64}(undef, n)
-        read!(io, slot_to_id)
-        id_to_slot = Dict{UInt64,Int}()
-        sizehint!(id_to_slot, n)
-        @inbounds for (slot, id) in enumerate(slot_to_id)
-            haskey(id_to_slot, id) &&
-                throw(InvalidFileFormat("duplicate id $id in file"))
-            id_to_slot[id] = slot
-        end
-        IdMapIndex(index, slot_to_id, id_to_slot)
-    end
-end
+load_idmap(path::AbstractString) = open(load_idmap, path, "r")

@@ -291,6 +291,66 @@ tqplus_scale(index::TurboQuantIndex) = index.tqplus_scale
 prepare(index::TurboQuantIndex) = index
 
 """
+    packed_ready(index) -> Bool
+
+Always `true`: this port keeps a single materialized code layout, so
+there is no lazy packed/blocked duality to report on. Kept for API
+parity with turbovec.
+"""
+packed_ready(index::TurboQuantIndex) = true
+
+"""
+    codes_blocked_seq(index) -> Vector{UInt8}
+
+The sequential blocked code bytes (32 vectors per block, one code byte
+per lane per byte group) — the layout the scan reads and the file
+stores. Empty for a lazy or empty index.
+"""
+function codes_blocked_seq(index::TurboQuantIndex)
+    (index.dim == 0 || index.n == 0) && return UInt8[]
+    copy(index.codes)
+end
+
+"""
+    codebook_for_write(index) -> (boundaries, centroids)
+
+The codebook arrays a file embeds. Populated indexes return the real
+Lloyd-Max codebook; lazy or empty ones return correctly-sized zero
+placeholders, which loaders ignore.
+"""
+function codebook_for_write(index::TurboQuantIndex)
+    n_levels = 1 << index.bit_width
+    (index.dim == 0 || index.n == 0) &&
+        return (zeros(Float32, n_levels - 1), zeros(Float32, n_levels))
+    codebook(index.bit_width, index.dim)
+end
+
+"""
+    first_invalid_coord(values, dim; max_magnitude = 1e16)
+        -> Union{Nothing, NamedTuple}
+
+Scan a flat `n * dim` buffer for the first coordinate that is not finite
+or has magnitude >= `max_magnitude`, and return
+`(vector_index, coord_index, value)` with **1-based** indices, or
+`nothing` when the input is clean. This is the predicate `add!` and
+`search` enforce.
+"""
+function first_invalid_coord(values::AbstractVector{Float32}, dim::Integer;
+                             max_magnitude::Float32 = MAX_INPUT_MAGNITUDE)
+    dim > 0 || throw(ArgumentError("dim must be positive, got $dim"))
+    length(values) % dim == 0 ||
+        throw(ArgumentError("values length $(length(values)) is not a multiple of dim $dim"))
+    @inbounds for (i, x) in enumerate(values)
+        if !(abs(x) < max_magnitude)
+            vi = (i - 1) ÷ dim + 1
+            ci = (i - 1) % dim + 1
+            return (vector_index = vi, coord_index = ci, value = x)
+        end
+    end
+    nothing
+end
+
+"""
     packed_codes(index) -> Vector{UInt8}
 
 The canonical bit-plane encoding of every row: `bits * (dim ÷ 8)` bytes

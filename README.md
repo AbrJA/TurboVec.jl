@@ -71,12 +71,19 @@ candidate by its stored renormalization scale.
 | `search(index, Q, k; allowlist = ids)` | Search restricted to external ids |
 | `remove!(index, id)` | Remove by id, returns `Bool` |
 | `contains_id(index, id)` | Id membership |
-| `write_index` / `load_index` | Persist / load `TurboQuantIndex` |
-| `write_idmap` / `load_idmap` | Persist / load `IdMapIndex` |
+| `write_index` / `load_index` | Persist / load `TurboQuantIndex` (path or `IO`) |
+| `write_idmap` / `load_idmap` | Persist / load `IdMapIndex` (path or `IO`) |
 | `to_bytes` / `from_bytes` | In-memory serialization, same layout as files |
+| `serialized_len(index)` | Exact on-disk length, without serializing |
 | `from_parts(dim, bits, n, packed, scales, shift, scale)` | Rebuild from validated raw parts |
 | `packed_codes(index)` | Canonical bit-plane codes |
+| `codes_blocked_seq(index)` | Sequential blocked code bytes (the file payload) |
+| `codebook_for_write(index)` | Codebook arrays a file embeds |
 | `dim`, `dim_opt`, `bit_width`, `scales`, `tqplus_shift`, `tqplus_scale` | Accessors |
+| `packed_ready` / `slots_ready` | Layout-state probes (always `true` here) |
+| `batch_addable(index, ids)` | Whether an id batch is addable |
+| `first_invalid_coord(values, dim)` | First invalid coordinate (1-based) |
+| `MIN_INPUT_NORM`, `MIN_CALIBRATION_ROWS`, `RECOMMENDED_CALIBRATION_ROWS` | Constants |
 | `prepare(index)` | No-op; kept for API parity |
 
 Filtering happens inside the scan. A slot `Bool` mask (or an id
@@ -151,15 +158,19 @@ Deliberate differences:
 
 * v7 incremental `sync()` (append-only delta journaling) and its
   crash-consistency machinery; this port writes whole snapshots
-  atomically;
+  atomically (`write`/`load`/`to_bytes`/`from_bytes` are all present);
 * the `.tv`/`.tvim` v2-v7 readers and `convert` tooling (this port has a
   single native format version);
 * the AVX-512 VNNI/`vpermb` and NEON SDOT/SMMLA kernel families and the
   two-stage "planes" shortlist. AVX-512BW and AVX2 `vpshufb` kernels are
   ported (`src/simd.jl`) with a bit-identical portable scalar fallback;
-* warning hooks and allocation-count guarantees;
+* warning hooks and the mask-skip telemetry counter;
+* the `try_*` `Result` forms — Julia raises typed exceptions instead
+  (`turboquant`'s error surface is otherwise mirrored);
 * the Python framework integrations (LangChain, LlamaIndex, Haystack,
-  Agno).
+  Agno);
+* `add_2d`/`calibrate_2d`: the matrix API carries the dim, so the
+  separate-dim forms are unnecessary.
 
 ## Performance vs Rust turbovec
 
@@ -255,12 +266,13 @@ julia --project=. dev/validate.jl          # bit-exactness check
 julia --project=. -t auto -e 'using Pkg; Pkg.test()'
 ```
 
-1605 assertions. The suite ports the applicable parts of turbovec's own
+1697 assertions. The suite ports the applicable parts of turbovec's own
 suite — rotation golden bits, codebook determinism, kernel correctness,
 query-scale invariance, concurrent search, swap-remove, lazy init,
 filtering/allowlists, id-map semantics, state sequences, calibration
-and its bounds, `from_parts`, bytes I/O, error surface — plus recall
-against brute force. Rust-generated golden fixtures pin the full encode
+and its bounds, `from_parts`, bytes I/O, the full public surface
+(accessors, IO-generic entry points, `serialized_len`, `batch_addable`)
+— plus recall against brute force. Rust-generated golden fixtures pin the full encode
 pipeline (rotation → codebook → quantization → bit packing) for 2/3/4-bit
 shapes, and the rotation/codebook goldens pin the deterministic
 primitives. Tests that pin SIMD byte-layouts, v7 crash

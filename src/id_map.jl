@@ -37,6 +37,30 @@ calibration_state(index::IdMapIndex) = calibration_state(index.inner)
 """True if the index currently contains a vector with this external id."""
 contains_id(index::IdMapIndex, id::Integer) = haskey(index.id_to_slot, UInt64(id))
 
+"""
+    batch_addable(index, ids) -> Bool
+
+True when `ids` has no duplicates and none of them is already present —
+exactly the pair of conditions [`add_with_ids!`](@ref) validates.
+"""
+function batch_addable(index::IdMapIndex, ids::AbstractVector{<:Integer})
+    seen = Set{UInt64}()
+    for id in ids
+        u = UInt64(id)
+        (haskey(index.id_to_slot, u) || u in seen) && return false
+        push!(seen, u)
+    end
+    true
+end
+
+"""
+    slots_ready(index) -> Bool
+
+Always `true`: this port maintains the id tables eagerly, so there is no
+lazy slot-map build to wait for. Kept for API parity with turbovec.
+"""
+slots_ready(index::IdMapIndex) = true
+
 """The external ids in slot order (slot order itself is an implementation detail)."""
 external_ids(index::IdMapIndex) = copy(index.slot_to_id)
 
