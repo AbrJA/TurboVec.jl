@@ -16,7 +16,7 @@ no k-means training, no index rebuilds as your corpus grows.
 | | |
 | --- | --- |
 | 🗜️ **8–16× smaller** | 10M vectors at 768 dims: ~31 GB as float32 → **~4 GB at 4-bit**, ~2 GB at 2-bit |
-| ⚡ **Fast** | SIMD AVX2/AVX-512 scan with multi-threaded search: 100k × 768 in ~0.2–0.35 ms per query |
+| ⚡ **Fast** | SIMD AVX2/AVX-512/NEON scan with multi-threaded search: 100k × 768 in ~0.2–0.35 ms per query |
 | 🧠 **No training** | `add!` and the vectors are immediately searchable; ingest grows online |
 | 🎯 **Optional calibration** | `calibrate!` fits *your* data for a recall bump on skewed embeddings |
 | 🔎 **Filtered search** | id allowlists / slot masks are honoured inside the SIMD scan |

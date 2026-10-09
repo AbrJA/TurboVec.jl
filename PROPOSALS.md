@@ -52,7 +52,23 @@ The CI jobs added in Phase B can only be verified on your next push
 | P2-3 CPUID probe hardened (no public replacement exists) | ✅ done | `87474c9` |
 | P1-17 harness docs + manual bench job, P2-7 docs compat | ✅ done | `a25fd4e` |
 
-Phases C–D remain as described in §4.
+**Worthwhile Phase C items have landed:**
+
+| Item | Status | Commit |
+| --- | --- | --- |
+| P1-5 aarch64 NEON kernels (single + two-query, bit-exact) | ✅ done | `e5a4bbe` |
+| P1-2 / P2-5 `fast = true` writes with a warning | ✅ done | `80e2878` |
+
+Verified on aarch64 under Docker/QEMU: the full suite (23 files) and
+`dev/validate.jl` both pass, and NEON parity is pinned by
+`test/test_simd.jl` alongside the AVX2/AVX-512 checks.
+
+**Assessed and deliberately not done:** P1-1 (demand-driven), P1-4
+(rejected: the Rust planes pass is approximate, see the note below),
+P2-1 (no VNNI/VBMI hardware to test on), P2-2 (cosmetic, frozen IR),
+P2-4 (the calibration matrix is required for exact quantiles), P2-6
+(JET is clean; no measured dispatch overhead). See §5 for the non-goals
+rationale.
 
 ---
 
@@ -217,11 +233,10 @@ periodic full-snapshot compaction (rewrite as v2 when the journal exceeds X% of 
 and crash recovery = validate + replay frames. This keeps the 80% value (no full rewrite on
 add, crash-safe) at ~20% of the Rust complexity. Effort: high; timeline: post-1.0.
 
-**P1-2. `Durability` modes.**
-Once writes are hardened (P0-4), optionally add `write_index(path, idx; fast = false)`:
-`fast = true` skips fsyncs (rename still atomic) for cache-file use cases, emitting a
-`@warn` — Julia has built-in logging, so no Rust-style warning hook is needed.
-Effort: small; only if demand exists.
+**P1-2. `Durability` modes. ✅ done.**
+`write_index(path, idx; fast = true)` (and `write_idmap`) skips the fsyncs for cache-style
+files; the rename stays atomic and a `@warn` explains the power-loss trade-off. Julia's
+logging replaces the Rust warning hook (P2-5), so no hook machinery was added.
 
 ### P1 — Remaining Rust features worth porting (ranked by value)
 
@@ -232,12 +247,14 @@ Batch search on non-AVX-512 machines currently runs per-query in parallel
 would roughly halve batch-search time on the large installed base of AVX2-only hosts, and the
 existing `test/test_simd.jl` parity harness makes it low-risk. Effort: medium.
 
-**P1-4. Two-phase "planes" search for n ≥ 32 768.**
-Rust switches to a sign-plane first pass + exact shortlist rescore at ≥32 768 vectors
-(`PLANES_MIN_VECTORS`), which is the main reason its large-corpus throughput outpaces the
-port. Because the shortlist is rescored exactly, results stay bit-identical — a natural fit
-for this port's philosophy. This is the single largest search-throughput opportunity for
-large indexes. Effort: high; timeline: post-1.0.
+**P1-4. Two-phase "planes" search for n ≥ 32 768 — ❌ rejected (approximate).**
+Rust's `planes` pass is **not lossless**: `planes_shortlist_len(k) = 12.8·k` (floor 128) is
+tuned to a ~99.9% sign-plane miss target, and only `planes_rescore_len(k) = max(2k, 32)`
+shortlist candidates get the exact rescore (`search.rs:4291`, `:4355`). Rust trades
+result-identity for speed at ≥32 768 vectors; porting it would break this package's "same
+results as the exhaustive scan" contract. Only worth revisiting as an explicit opt-in
+approximate mode (e.g. `search(...; mode = :fast)`) with documented recall — a product
+decision, not a port.
 
 **P1-5. aarch64 NEON kernels.**
 macOS ARM (already in CI) and future ARM servers run the scalar path today; Rust has
@@ -327,20 +344,23 @@ optional/manual benchmark CI job; do not gate merges on noisy ±20% benchmarks.
 
 ### P2 — Later / opportunistic
 
-- **P2-1. AVX-512 VNNI/`vpermb` vector-major 4-bit kernels** (Ice Lake+): Rust's biggest
-  single-query win; high effort, hardware-niche. Port only when a user with VNNI hardware
-  cares about single-query latency.
-- **P2-2. Deduplicate the three LLVM IR kernels** (`src/simd.jl`) by generating the IR
-  strings from a shared template (they differ only in blocks-per-pass and table count).
-  The existing parity tests make this safe, but it is cosmetic — the strings are stable.
+- **P2-1. ❌ Skipped (for now): AVX-512 VNNI/`vpermb` vector-major 4-bit kernels.** Rust's
+  biggest single-query win, but the dev box has no VNNI/VBMI (verified via CPUID), so the
+  kernels could be neither tested nor benchmarked locally. Revisit with access to Ice
+  Lake+ hardware.
+- **P2-2. ❌ Skipped: deduplicate the LLVM IR kernels** (`src/simd.jl`) via a shared template.
+  Cosmetic — the IR strings are frozen and parity-tested; a generator adds risk without
+  payoff.
 - **P2-3. ✅ CPU feature probe hardened** (`src/simd.jl`): no public feature-detection API
   exists in Base, so the probe now falls back to the scalar path on any failure instead of
   being replaced (commit `87474c9`).
-- **P2-4. Chunked `calibrate!` rotation** (`src/index.jl:222` materializes `dim × nr`) for
-  very large calibration samples; the recommended 1000 rows are fine today.
-- **P2-5. Warning behavior for fast writes** (see P1-2) via `@warn` — no hook machinery.
-- **P2-6. `@assume_effects`/`@constprop` annotations** on the scan kernels after a JET pass
-  (P1-16) finds any dynamic dispatch.
+- **P2-4. ❌ Won't fix: chunked `calibrate!` rotation.** The `dim × nr` rotated matrix is
+  required to compute exact per-coordinate quantiles; chunking the rotation does not lower
+  the peak (the matrix is the peak), and approximate quantile sketches would break
+  bit-exactness. The recommended 1000-row samples are fine as-is.
+- **P2-5. ✅ Done with P1-2** via `@warn` — no hook machinery.
+- **P2-6. ❌ Skipped: `@assume_effects`/`@constprop` annotations.** The JET gate is clean and
+  no profile shows dynamic dispatch in the hot paths; speculative micro-tuning.
 - **P2-7. ✅ docs/Project.toml** gained a `julia = "1.13"` compat entry (commit `a25fd4e`).
 
 ---
@@ -351,7 +371,7 @@ optional/manual benchmark CI job; do not gate merges on noisy ±20% benchmarks.
 | --- | --- | --- |
 | **A — v0.2 (pre-registration hardening)** | P0-1…P0-11, P0-12(1) | `Pkg.test()` + bounds/depwarn run green, `dev/validate.jl` green, format finalized (v2 + CRC) |
 | **B — v0.3 / v1.0 release** | P0-12(2,3), P1-3, P1-7…P1-11, P1-13…P1-15, P1-16 | registered, changelog, JET/formatter/validate CI green, AVX2 two-query kernel bit-exact |
-| **C — post-1.0 scale features** | P1-1 (`sync`, simplified journal), P1-4 (planes), P1-5 (NEON) | each landed with its own golden/parity tests and Rust cross-validation where applicable |
+| **C — post-1.0 scale features** | P1-5 NEON (done, bit-exact); P1-1 `sync` (deferred until demand); P1-4 planes (rejected — approximate) | NEON verified on aarch64 (full suite + `dev/validate.jl`); P1-4 would need an explicit opt-in approximate mode |
 | **D — opportunistic** | all P2 | — |
 
 Phases A and B are deliberately sized so the library can ship 1.0 within a few weeks of
@@ -373,6 +393,13 @@ These Rust features should stay unported; the reasons are design decisions, not 
 - **Fork-safety machinery** — no equivalent threat model for Julia threads/tasks.
 - **`packed_ready`/`slots_ready` duality** — the port materializes one layout; the predicates
   stay as documented parity stubs (`src/index.jl:332`, `src/id_map.jl:106`).
+- **The Rust `planes` two-phase search** — approximate by construction (12.8×k shortlist,
+  2×k rescore, ~99.9% miss target); would break result-identity. An opt-in `mode = :fast`
+  is a possible future feature, not a port.
+- **VNNI/`vpermb` kernels** — skipped until VNNI/VBMI hardware is available for testing and
+  benchmarking; the dev box has none (CPUID-verified).
+- **IR-template code generation and speculative `@assume_effects` tuning** — the kernels are
+  frozen and parity-tested, and JET is clean; neither is worth the risk today.
 
 ---
 

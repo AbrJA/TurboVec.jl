@@ -30,3 +30,20 @@ how the fidelity and performance numbers in the docs are produced.
 `profiling/` holds the kernel and encode experiments behind the
 optimization log. Rejected ideas are documented in the README's
 "Optimization log"; do not retry them without new evidence.
+
+## aarch64 verification (no ARM hardware needed)
+
+The NEON kernels can be tested on an x86 host through Docker + QEMU
+(one-time setup registers the emulator; the first pull is ~500 MB):
+
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+docker run --rm --platform linux/arm64 \
+  -v "$PWD":/pkg:ro -v /tmp/armdepot:/root/.julia -w / julia:1.13 \
+  bash -c 'cp -r /pkg /work && cd /work && \
+           julia --project=. -e "using Pkg; Pkg.test()"'
+```
+
+Emulation is ~10–20× slower than native, so run targeted files (for
+example `test/test_simd.jl`) while iterating and the full suite before
+committing kernel changes. `dev/validate.jl` also passes on aarch64.

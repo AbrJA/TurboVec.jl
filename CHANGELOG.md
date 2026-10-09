@@ -25,8 +25,15 @@ breaking change.
 - `single_query_parallelizes(n_vectors)`: the rule behind the
   block-parallel single-query path, exported for tuning and bindings.
 - `dev/README.md` documenting the Rust cross-validation corpus, the
-  Julia/Rust benchmark harnesses, and the profiling experiments; a
+  Julia/Rust benchmark harnesses, the profiling experiments, and the
+  Docker/QEMU recipe for aarch64 verification; a
   `workflow_dispatch`-only benchmark CI job.
+- aarch64 NEON scan kernels (`tbl`-based single-block and two-query
+  pair), bit-identical to the scalar kernel; Apple Silicon and ARM
+  servers no longer run the scalar path.
+- `write_index(path, index; fast = true)` and the same keyword on
+  `write_idmap`: skips the fsyncs for regenerable cache files (the
+  rename stays atomic) and warns about the power-loss trade-off.
 
 ### Changed
 - **Breaking:** the persistence format is now v2 (`TVECJL\2\0` with a CRC-32C
@@ -60,6 +67,10 @@ breaking change.
 - The CPU feature probe falls back to the scalar path on any probe
   failure instead of risking package load; docs/Project.toml gained a
   Julia compat entry.
+- Search dispatches to NEON on aarch64; batch search pairs two queries
+  per code pass on AVX2, AVX-512 and NEON alike. Verified bit-exact
+  against the scalar kernel and the frozen Rust reference under aarch64
+  emulation.
 
 ### Fixed
 - Truncated files now raise `InvalidFileFormat` instead of a bare `EOFError`.

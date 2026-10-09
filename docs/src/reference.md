@@ -67,8 +67,10 @@ The port leans on Julia's own protocol rather than a bespoke API:
   `from_bytes` are all present);
 * the `.tv`/`.tvim` v2-v7 readers and `convert` tooling (this port has a single native format
   version);
-* the AVX-512 VNNI/`vpermb` and NEON SDOT/SMMLA kernel families and the two-stage "planes"
-  shortlist. AVX-512BW and AVX2 `vpshufb` kernels are ported (`src/simd.jl`) with a
+* the AVX-512 VNNI/`vpermb` and NEON SDOT/SMMLA/i8mm kernel families and the two-stage
+  "planes" shortlist (Rust's planes pass is approximate — a 12.8×k sign-plane shortlist
+  rescored at 2×k, tuned to a ~99.9% miss target — so it trades result-identity for speed).
+  AVX-512BW, AVX2 `vpshufb`, and aarch64 NEON `tbl` kernels are ported (`src/simd.jl`) with a
   bit-identical portable scalar fallback;
 * warning hooks and the mask-skip telemetry counter;
 * the `try_*` `Result` forms — Julia raises typed exceptions instead (the error surface is
