@@ -5,7 +5,5 @@
 using Aqua
 
 @testset "code quality (Aqua)" begin
-    Aqua.test_all(TurboVec;
-                  ambiguities = (; recursive = true),
-                  persistent_tasks = false)  # the precompile workload spawns tasks
+    Aqua.test_all(TurboVec; ambiguities = (; recursive = true))
 end
