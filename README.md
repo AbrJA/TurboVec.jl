@@ -88,6 +88,20 @@ Invalid input (NaN, ±Inf, `|x| ≥ 1e16`) is rejected with typed errors;
 the zero vector is stored with score 0 and ranks last. Both index types
 are safe for concurrent `search` calls.
 
+## Layout and precision notes
+
+* The public API takes `n × dim` `Float32` matrices (the numpy/FAISS
+  convention). Julia arrays are column-major, so an encode row is
+  strided. The encode path copies each row once into a contiguous
+  worker buffer; transposing the whole matrix first measured *slower*
+  than the strided copy (3.8 µs/row for `permutedims` vs 1.5 µs/row
+  saved on 100k × 768), so it is deliberately not done.
+* Stored codes use a 32-vector blocked layout so every scan loop walks
+  contiguous bytes (one 32-byte group per block per byte group).
+* Hot paths are `Float32` end to end. `Float64` appears only where it
+  mirrors the Rust arithmetic bit-for-bit: the per-vector reconstruction
+  inner product, the calibration fit, and the off-line Lloyd-Max solve.
+
 ## Threading
 
 Search and encode use `Threads.@spawn` / `Threads.@threads`. Start Julia
@@ -173,6 +187,11 @@ approximate: encode is ~1.6–2x slower single-threaded and comparable at
 AVX-512/AVX2 kernels, while this port runs a 64-lane AVX-512BW pair
 kernel (`src/simd.jl`) with an AVX2 single-block kernel and a portable
 bit-identical scalar fallback, selected at runtime via `Base.llvmcall`.
+`llvmcall` is the same lowering Rust's `std::arch` intrinsics use; the
+gather-based alternatives measured far worse (LoopVectorization's
+`vindex` scan: 45.8 ms vs 19.5 ms scalar vs 3.4 ms kernel), and SIMD.jl
+only exposes static shuffles and hardware gathers, which cannot express
+a runtime `vpshufb` table lookup.
 Encode fuses rotation and quantization per row so the `dim × n` rotated
 matrix never exists. The first version of this port was 10–20x slower on
 search; the remaining gap is kernel micro-optimization and cache
@@ -184,11 +203,14 @@ behavior, not algorithm.
 julia --project=. -t auto -e 'using Pkg; Pkg.test()'
 ```
 
-1094 assertions. The suite ports the applicable parts of turbovec's own
+1605 assertions. The suite ports the applicable parts of turbovec's own
 suite — rotation golden bits, codebook determinism, kernel correctness,
 query-scale invariance, concurrent search, swap-remove, lazy init,
 filtering/allowlists, id-map semantics, state sequences, calibration
 and its bounds, `from_parts`, bytes I/O, error surface — plus recall
-against brute force. Tests that pin SIMD byte-layouts, v7 crash
+against brute force. Rust-generated golden fixtures pin the full encode
+pipeline (rotation → codebook → quantization → bit packing) for 2/3/4-bit
+shapes, and the rotation/codebook goldens pin the deterministic
+primitives. Tests that pin SIMD byte-layouts, v7 crash
 consistency, or the Rust on-disk format are not applicable to this
 port.
