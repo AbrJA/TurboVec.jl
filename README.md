@@ -197,6 +197,26 @@ matrix never exists. The first version of this port was 10–20x slower on
 search; the remaining gap is kernel micro-optimization and cache
 behavior, not algorithm.
 
+## Development tooling
+
+`dev/` holds the cross-validation and benchmark harnesses used to build
+this port (not part of the package):
+
+* `dev/tvref/` — Rust reference dumper; `cargo run --release` regenerates
+  `dev/out/` from the actual `turbovec` crate.
+* `dev/validate.jl` — compares this implementation with that reference:
+  rotation streams, codebooks and packed codes bit-identical; 100% top-k
+  set overlap; aligned scores within ~1e-6.
+* `dev/tvbench/` + `dev/bench2.jl` — identical-corpus Rust and Julia
+  benchmarks (`RAYON_NUM_THREADS=N` / `julia -t N`).
+* `dev/profiling/` — the kernel and encode experiments from the
+  optimization passes.
+
+```bash
+(cd dev/tvref && cargo run --release)      # regenerate reference data
+julia --project=. dev/validate.jl          # bit-exactness check
+```
+
 ## Testing
 
 ```bash
