@@ -4,3 +4,7 @@ Manifest.toml
 *.jl.mem
 /docs/build/
 /docs/Manifest.toml
+
+# TurboVec dev harnesses
+/dev/logs/
+/dev/*/target/

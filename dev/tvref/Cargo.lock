@@ -316,6 +316,8 @@ dependencies = [
 [[package]]
 name = "turbovec"
 version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1131bbaacc5d3c093f09c2e3b470f03bbd218b1a0843140ae6a71a8c692b9ece"
 dependencies = [
  "ordered-float",
  "rand",

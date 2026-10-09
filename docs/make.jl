@@ -1,12 +1,13 @@
-using Documenter, Example
+using Documenter, TurboVec
 
-makedocs(modules = [Example],
-         sitename = "Example.jl",
-         format = Documenter.HTML()
+makedocs(modules = [TurboVec],
+         sitename = "TurboVec.jl",
+         format = Documenter.HTML(),
+         pages = ["Home" => "index.md"],
          )
 
 deploydocs(
-    repo = "github.com/JuliaLang/Example.jl.git",
+    repo = "github.com/AbrJA/TurboVec.jl.git",
     target = "build",
     deps   = nothing,
     make   = nothing,

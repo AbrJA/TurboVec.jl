@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-turbovec = { path = "../../../turbovec" }
+turbovec = "=1.0.0"
 rayon = "1.12"
 
 [profile.release]
