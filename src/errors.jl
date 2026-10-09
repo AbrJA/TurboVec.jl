@@ -125,6 +125,14 @@ struct UnknownId <: TurboVecError
 end
 Base.showerror(io::IO, e::UnknownId) = print(io, "id ", e.id, " is not present in the index")
 
+"""An external id is negative or not representable as a `UInt64`."""
+struct InvalidIdValue <: TurboVecError
+    id::Integer
+end
+Base.showerror(io::IO, e::InvalidIdValue) =
+    print(io, "invalid external id ", e.id,
+          " (ids must be nonnegative integers representable as UInt64)")
+
 """`from_parts` was given an inconsistent or out-of-bounds part."""
 struct InvalidParts <: TurboVecError
     msg::String

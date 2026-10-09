@@ -34,7 +34,7 @@ export TurboVecError, BitWidthOutOfRange, DimNotPositiveMultipleOf8, DimTooLarge
        QueryBufferNotMultipleOfDim, InvalidQueryValue, IdAlreadyPresent,
        DuplicateIdInBatch, IdsCountMismatch, EmptyCalibrationSample,
        DegenerateSample, InvalidFileFormat, InvalidParts, MaskLengthMismatch,
-       AllowlistEmpty, UnknownId, MAX_DIM
+       AllowlistEmpty, UnknownId, InvalidIdValue, MAX_DIM
 
 """Maximum supported dimensionality."""
 const MAX_DIM = 16384

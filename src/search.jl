@@ -320,8 +320,8 @@ function _scan_two_avx512!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
                                  prepA.bias, poa)
                 _insert_lanes!(topkA, outA, 1, base_vec, n, scales, mask)
                 scan_block_avx2!(pc + b * stride, plb, ng, prepB.scale,
-                                 prepB.bias, poa)
-                _insert_lanes!(topkB, outA, 1, base_vec, n, scales, mask)
+                                 prepB.bias, pob)
+                _insert_lanes!(topkB, outB, 1, base_vec, n, scales, mask)
                 b += 1
             end
         end

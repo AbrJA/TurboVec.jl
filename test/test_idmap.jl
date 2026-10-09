@@ -19,6 +19,18 @@
     @test_throws IdsCountMismatch add_with_ids!(idx, X[1:2, :], UInt64[7])
     @test_throws DimMismatch add_with_ids!(idx, rand_rows(rng, 1, dim + 8), UInt64[7])
 
+    # Ids outside the UInt64 domain raise a typed error, never InexactError.
+    @test_throws InvalidIdValue add_with_ids!(idx, X[1:1, :], [-1])
+    @test_throws InvalidIdValue add_with_ids!(idx, X[1:1, :], [big(2)^64])
+    @test_throws InvalidIdValue add_with_ids!(idx, X[1, :], -5)
+    @test_throws InvalidIdValue search(idx, X[1:1, :], 1; allowlist = [-3])
+    # ...while predicates and removal treat them as simply absent.
+    @test !is_addable(idx, [-1])
+    @test !contains_id(idx, -1)
+    @test !(-1 in idx)
+    @test !remove!(idx, -1)
+    @test !remove!(idx, big(2)^64)
+
     # O(1) remove by id
     @test remove!(idx, ids[5])
     @test !remove!(idx, ids[5])

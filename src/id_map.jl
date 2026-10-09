@@ -7,6 +7,16 @@ mutable struct IdMapIndex
     id_to_slot::Dict{UInt64,Int}
 end
 
+# Convert an external id, throwing a typed error when it cannot be a `UInt64`.
+@inline function _to_uid(id::Integer)
+    0 <= id <= typemax(UInt64) || throw(InvalidIdValue(id))
+    UInt64(id)
+end
+
+# Predicate form: `false` when the id cannot name any stored vector.
+@inline _uid_or_nothing(id::Integer) =
+    0 <= id <= typemax(UInt64) ? UInt64(id) : nothing
+
 """
     IdMapIndex(dim, bit_width)
 
@@ -37,8 +47,13 @@ calibration_state(index::IdMapIndex) = calibration_state(index.inner)
 is_calibrated(index::IdMapIndex) = is_calibrated(index.inner)
 calibration(index::IdMapIndex) = calibration(index.inner)
 
-"""True if the index currently contains a vector with this external id."""
-contains_id(index::IdMapIndex, id::Integer) = haskey(index.id_to_slot, UInt64(id))
+"""True if the index currently contains a vector with this external id.
+
+Ids that cannot be represented as a `UInt64` (e.g. negative) are simply
+not present, so this returns `false` rather than throwing.
+"""
+contains_id(index::IdMapIndex, id::Integer) =
+    (u = _uid_or_nothing(id)) === nothing ? false : haskey(index.id_to_slot, u)
 
 """Idiomatic membership: `id in index`."""
 Base.in(id::Integer, index::IdMapIndex) = contains_id(index, id)
@@ -90,7 +105,8 @@ exactly the pair of conditions [`add_with_ids!`](@ref) validates.
 function is_addable(index::IdMapIndex, ids::AbstractVector{<:Integer})
     seen = Set{UInt64}()
     for id in ids
-        u = UInt64(id)
+        u = _uid_or_nothing(id)
+        u === nothing && return false
         (haskey(index.id_to_slot, u) || u in seen) && return false
         push!(seen, u)
     end
@@ -121,7 +137,7 @@ function add_with_ids!(index::IdMapIndex, X::AbstractMatrix{Float32},
     uids = Vector{UInt64}(undef, n)
     seen = Set{UInt64}()
     @inbounds for i in 1:n
-        u = UInt64(ids[i])
+        u = _to_uid(ids[i])
         uids[i] = u
         haskey(index.id_to_slot, u) && throw(IdAlreadyPresent(u))
         u in seen && throw(DuplicateIdInBatch(u))
@@ -141,14 +157,19 @@ add_with_ids!(index::IdMapIndex, X::AbstractMatrix{<:Real},
 
 """Add one vector with one external id."""
 add_with_ids!(index::IdMapIndex, x::AbstractVector{Float32}, id::Integer) =
-    add_with_ids!(index, reshape(x, 1, :), UInt64[id])
+    add_with_ids!(index, reshape(x, 1, :), [id])
 
 add_with_ids!(index::IdMapIndex, x::AbstractVector{<:Real}, id::Integer) =
-    add_with_ids!(index, reshape(Float32.(x), 1, :), UInt64[id])
+    add_with_ids!(index, reshape(Float32.(x), 1, :), [id])
 
-"""Remove the vector with external `id`. Returns `true` if present."""
+"""Remove the vector with external `id`. Returns `true` if present.
+
+Ids that cannot be represented as a `UInt64` (e.g. negative) are never
+present, so this returns `false`.
+"""
 function remove!(index::IdMapIndex, id::Integer)
-    u = UInt64(id)
+    u = _uid_or_nothing(id)
+    u === nothing && return false
     slot = get(index.id_to_slot, u, 0)
     slot == 0 && return false
     last = index.inner.n
@@ -190,7 +211,7 @@ function search(index::IdMapIndex, queries::AbstractMatrix{Float32}, k::Integer;
         isempty(allowlist) && throw(AllowlistEmpty())
         mask = fill(false, index.inner.n)
         for id in allowlist
-            u = UInt64(id)
+            u = _to_uid(id)
             slot = get(index.id_to_slot, u, 0)
             slot == 0 && throw(UnknownId(u))
             mask[slot] = true
