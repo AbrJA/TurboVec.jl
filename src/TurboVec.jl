@@ -53,5 +53,6 @@ include("index.jl")
 include("search.jl")
 include("id_map.jl")
 include("io.jl")
+include("precompile.jl")
 
 end # module TurboVec

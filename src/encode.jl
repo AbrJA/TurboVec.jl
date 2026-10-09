@@ -15,9 +15,20 @@
 
 const NORM_CHAINS = 8
 const MAX_INPUT_MAGNITUDE = 1.0f16
+
+"""L2 norm at or below which a vector has no representable direction.
+
+Such a vector is stored with scale 0 (it scores 0 against every query),
+not rejected.
+"""
 const MIN_INPUT_NORM = 1.0f-10
+
 const DEGENERATE_INNER_EPS = 0.1
+
+"""Calibration sample size to aim for (advisory, not enforced)."""
 const RECOMMENDED_CALIBRATION_ROWS = 1000
+
+"""Fewest rows a calibration fit can structurally use."""
 const MIN_CALIBRATION_ROWS = 2
 
 """Fixed-order 8-chain Euclidean norm of one row (matches Rust `simd_norm`)."""

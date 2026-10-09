@@ -118,6 +118,11 @@ The port leans on Julia's own protocol rather than a bespoke API:
 * **Errors**: Julia exceptions, all subtypes of `TurboVecError`, instead
   of `Result` values; validator messages distinguish malformed parts
   (`InvalidParts`) from malformed files (`InvalidFileFormat`).
+* **Load time**: the only runtime dependency is PrecompileTools, used
+  for a precompile workload over the common paths. A cached `using` is
+  ~0.1 s and the first `add!` / `search` land in ~0.2 s / ~0 ms,
+  against ~1.8 s / ~1.6 s without it (the `llvmcall` kernel code is
+  cached in the package image too).
 
 ## Layout and precision notes
 
