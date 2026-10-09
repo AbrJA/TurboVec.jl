@@ -69,6 +69,15 @@ queries is scored two queries per code pass. No thread-count configuration leaks
 results: every row's score is computed by a fixed accumulation order, so results are
 bit-identical regardless of the number of threads.
 
+### Thread safety
+
+Reading operations — `search`, `prepare`, `serialized_len`, `to_bytes`, `write_index`,
+`write_idmap` and the accessors — are safe to call concurrently on a shared index. Mutating
+operations — `add!`, `calibrate!`, `add_with_ids!`, `swap_remove!`, `remove!`, `empty!` —
+require exclusive access: do not search or read an index while another task is mutating it.
+This mirrors the Rust crate's `&self` / `&mut self` split. Indices are not `Task`-safe
+containers the way `Channel` is; guard mutation with your own lock if needed.
+
 ## Persistence
 
 Files are Julia-native, versioned (v2), little-endian, and carry a **CRC-32C** checksum
@@ -85,3 +94,11 @@ write_idmap("index.tvim", idmap);  loaded = load_idmap("index.tvim")
 buf = to_bytes(index);             copy  = from_bytes(TurboQuantIndex, buf)
 serialized_len(index)              # exact on-disk length, without serializing
 ```
+
+### Versioning
+
+The package follows SemVer. The bit-exactness contracts are part of the public API: any
+change to the stored codes, scales, calibration, rotation, codebook, or the file format's
+bytes is a breaking change, as is any change to the exported surface. The Rust
+cross-validation (`dev/validate.jl`) and the golden tests exist to catch those changes before
+they ship.

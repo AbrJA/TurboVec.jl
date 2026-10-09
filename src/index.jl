@@ -76,9 +76,7 @@ function _grow_codes!(index::TurboQuantIndex, n::Int)
     old = length(index.codes)
     if need > old
         resize!(index.codes, need)
-        @inbounds for i in (old + 1):need
-            index.codes[i] = 0x00
-        end
+        fill!(view(index.codes, (old + 1):need), 0x00)
     elseif need < old
         resize!(index.codes, need)
     end
@@ -356,6 +354,32 @@ function Base.show(io::IO, index::TurboQuantIndex)
     end
 end
 
+function Base.show(io::IO, ::MIME"text/plain", index::TurboQuantIndex)
+    print(io, "TurboQuantIndex: ")
+    if index.dim == 0
+        print(io, "lazy, $(index.bit_width)-bit, $(index.n) vectors")
+    else
+        print(io, "$(index.dim) features, $(index.bit_width)-bit, ",
+              "$(index.n) vectors, ",
+              is_calibrated(index) ? "calibrated" : "uncalibrated")
+        print(io, "\n  codes: ", length(index.codes), " bytes")
+    end
+end
+
+"""
+    index == other
+
+Structural equality: same committed geometry (`dim`, `bit_width`, `n`),
+codes, scales and calibration. The rotation and codebook are canonical
+for a `(dim, bit_width)` pair, so they are not compared.
+"""
+function Base.:(==)(a::TurboQuantIndex, b::TurboQuantIndex)
+    a === b && return true
+    a.dim == b.dim && a.bit_width == b.bit_width && a.n == b.n &&
+        a.codes == b.codes && a.scales == b.scales &&
+        a.tqplus_shift == b.tqplus_shift && a.tqplus_scale == b.tqplus_scale
+end
+
 """Deep copy (codes, scales and calibration; geometry is immutable and shared)."""
 function Base.copy(index::TurboQuantIndex)
     TurboQuantIndex(index.dim, index.bit_width, index.n, index.n_blocks,
@@ -405,15 +429,19 @@ function packed_codes(index::TurboQuantIndex)
     bpp = dim ÷ 8
     bytes_per_row = bits * bpp
     out = zeros(UInt8, bytes_per_row * index.n)
-    codes = Vector{UInt8}(undef, dim)
-    for v in 1:index.n
-        extract_codes_lane!(codes, index.codes, v - 1, dim, bits)
-        base = (v - 1) * bytes_per_row
-        @inbounds for c in 0:(bpp - 1)
-            for k in 0:7
-                code = codes[8c + k + 1]
-                for p in 0:(bits - 1)
-                    out[base + p * bpp + c + 1] |= ((code >> p) & 0x1) << (7 - k)
+    @sync for (lo, hi) in _parallel_ranges(index.n)
+        Threads.@spawn begin
+            codes = Vector{UInt8}(undef, dim)
+            for v in lo:hi
+                extract_codes_lane!(codes, index.codes, v - 1, dim, bits)
+                base = (v - 1) * bytes_per_row
+                @inbounds for c in 0:(bpp - 1)
+                    for k in 0:7
+                        code = codes[8c + k + 1]
+                        for p in 0:(bits - 1)
+                            out[base + p * bpp + c + 1] |= ((code >> p) & 0x1) << (7 - k)
+                        end
+                    end
                 end
             end
         end
@@ -476,21 +504,25 @@ function from_parts(dim::Integer, bit_width::Integer, n::Integer,
 
     boundaries, centroids = codebook(bits, d)
     codes = zeros(UInt8, blocked_len(nn, bits, d))
-    buf = Vector{UInt8}(undef, d)
     bpp = d ÷ 8
-    for v in 1:nn
-        base = (v - 1) * bytes_per_row
-        @inbounds for c in 0:(bpp - 1)
-            for k in 0:7
-                code = 0x00
-                for p in 0:(bits - 1)
-                    bit = (packed[base + p * bpp + c + 1] >> (7 - k)) & 0x1
-                    code |= bit << p
+    @sync for (lo, hi) in _parallel_ranges(nn)
+        Threads.@spawn begin
+            buf = Vector{UInt8}(undef, d)
+            for v in lo:hi
+                base = (v - 1) * bytes_per_row
+                @inbounds for c in 0:(bpp - 1)
+                    for k in 0:7
+                        code = 0x00
+                        for p in 0:(bits - 1)
+                            bit = (packed[base + p * bpp + c + 1] >> (7 - k)) & 0x1
+                            code |= bit << p
+                        end
+                        buf[8c + k + 1] = code
+                    end
                 end
-                buf[8c + k + 1] = code
+                write_codes_lane!(codes, v - 1, buf, d, bits)
             end
         end
-        write_codes_lane!(codes, v - 1, buf, d, bits)
     end
 
     TurboQuantIndex(d, bits, nn, n_blocks(nn), codes, Vector{Float32}(scales),

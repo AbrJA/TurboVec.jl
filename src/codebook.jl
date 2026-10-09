@@ -179,18 +179,11 @@ function codebook(bits::Int, dim::Int)
     dim <= MAX_DIM || throw(ArgumentError("dim must be <= $MAX_DIM (MAX_DIM), got $dim"))
     lock(CODEBOOK_LOCK)
     try
-        hit = get(CODEBOOK_MEMO, (bits, dim), nothing)
-        hit !== nothing && return hit
+        get!(CODEBOOK_MEMO, (bits, dim)) do
+            boundaries, centroids = lloyd_max(bits, dim, 200, 1.0e-12)
+            (boundaries = boundaries, centroids = centroids)
+        end
     finally
         unlock(CODEBOOK_LOCK)
     end
-    boundaries, centroids = lloyd_max(bits, dim, 200, 1.0e-12)
-    computed = (boundaries = boundaries, centroids = centroids)
-    lock(CODEBOOK_LOCK)
-    try
-        CODEBOOK_MEMO[(bits, dim)] = computed
-    finally
-        unlock(CODEBOOK_LOCK)
-    end
-    computed
 end

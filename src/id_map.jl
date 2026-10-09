@@ -84,6 +84,29 @@ function Base.show(io::IO, index::IdMapIndex)
     end
 end
 
+function Base.show(io::IO, ::MIME"text/plain", index::IdMapIndex)
+    print(io, "IdMapIndex: ")
+    if dim(index) == 0
+        print(io, "lazy, $(bit_width(index))-bit, $(length(index)) ids")
+    else
+        print(io, "$(dim(index)) features, $(bit_width(index))-bit, ",
+              "$(length(index)) ids, ",
+              is_calibrated(index) ? "calibrated" : "uncalibrated")
+        print(io, "\n  codes: ", length(index.inner.codes), " bytes")
+    end
+end
+
+"""
+    index == other
+
+Structural equality: same inner index (geometry, codes, scales and
+calibration) and the same id table in slot order.
+"""
+function Base.:(==)(a::IdMapIndex, b::IdMapIndex)
+    a === b && return true
+    a.inner == b.inner && a.slot_to_id == b.slot_to_id
+end
+
 """Deep copy (inner index, id tables)."""
 Base.copy(index::IdMapIndex) =
     IdMapIndex(copy(index.inner), copy(index.slot_to_id), copy(index.id_to_slot))
@@ -96,6 +119,22 @@ function Base.empty!(index::IdMapIndex)
     index
 end
 
+# Convert and validate a batch of external ids, throwing on the first
+# out-of-domain, already-present or duplicated id. Shared by `is_addable`
+# and `add_with_ids!`.
+function _checked_uids(index::IdMapIndex, ids::AbstractVector{<:Integer})
+    uids = Vector{UInt64}(undef, length(ids))
+    seen = Set{UInt64}()
+    @inbounds for i in eachindex(ids)
+        u = _to_uid(ids[i])
+        uids[i] = u
+        haskey(index.id_to_slot, u) && throw(IdAlreadyPresent(u))
+        u in seen && throw(DuplicateIdInBatch(u))
+        push!(seen, u)
+    end
+    uids
+end
+
 """
     is_addable(index, ids) -> Bool
 
@@ -103,14 +142,12 @@ True when `ids` has no duplicates and none of them is already present —
 exactly the pair of conditions [`add_with_ids!`](@ref) validates.
 """
 function is_addable(index::IdMapIndex, ids::AbstractVector{<:Integer})
-    seen = Set{UInt64}()
-    for id in ids
-        u = _uid_or_nothing(id)
-        u === nothing && return false
-        (haskey(index.id_to_slot, u) || u in seen) && return false
-        push!(seen, u)
+    try
+        _checked_uids(index, ids)
+        true
+    catch e
+        e isa TurboVecError ? false : rethrow()
     end
-    true
 end
 
 """
@@ -134,15 +171,7 @@ function add_with_ids!(index::IdMapIndex, X::AbstractMatrix{Float32},
                        ids::AbstractVector{<:Integer})
     n = size(X, 1)
     length(ids) == n || throw(IdsCountMismatch(n, length(ids)))
-    uids = Vector{UInt64}(undef, n)
-    seen = Set{UInt64}()
-    @inbounds for i in 1:n
-        u = _to_uid(ids[i])
-        uids[i] = u
-        haskey(index.id_to_slot, u) && throw(IdAlreadyPresent(u))
-        u in seen && throw(DuplicateIdInBatch(u))
-        push!(seen, u)
-    end
+    uids = _checked_uids(index, ids)
     base = index.inner.n
     add!(index.inner, X)
     @inbounds for i in 1:n

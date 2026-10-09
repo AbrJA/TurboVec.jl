@@ -147,19 +147,3 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
 
     QueryLut(table, scale, bias)
 end
-
-"""
-    scale_lut(lut) -> Vector{Float32}
-
-`scale * Float32(entry)` for every table entry. Bit-identical to the
-per-lookup multiply the Rust kernel performs, hoisted out of the scan.
-"""
-function scale_lut(lut::QueryLut)
-    t = lut.table
-    out = Vector{Float32}(undef, length(t))
-    s = lut.scale
-    @inbounds for i in eachindex(t)
-        out[i] = s * Float32(t[i])
-    end
-    out
-end

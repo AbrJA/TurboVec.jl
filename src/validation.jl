@@ -22,7 +22,7 @@ const MAX_VECTOR_SCALE = 1.0f22
 function _scale_error(scales::AbstractVector{Float32})
     @inbounds for (i, s) in enumerate(scales)
         if !isfinite(s) || s < 0.0f0 || s > MAX_VECTOR_SCALE
-            return "invalid per-vector scale at slot $(i - 1): $s " *
+            return "invalid per-vector scale at slot $i: $s " *
                    "(must be finite and in [0, $MAX_VECTOR_SCALE])"
         end
     end
@@ -35,14 +35,14 @@ function _calibration_error(shift::AbstractVector{Float32},
     cap = max_tqplus_shift(length(shift))
     @inbounds for (i, v) in enumerate(shift)
         if !isfinite(v) || abs(v) > cap
-            return "invalid TQ+ shift at coord $(i - 1): $v " *
+            return "invalid TQ+ shift at coord $i: $v " *
                    "(must be finite and |shift| <= $cap)"
         end
     end
     floor = min_tqplus_scale(length(scale))
     @inbounds for (i, v) in enumerate(scale)
         if !isfinite(v) || v < floor
-            return "invalid TQ+ scale at coord $(i - 1): $v " *
+            return "invalid TQ+ scale at coord $i: $v " *
                    "(must be finite and >= $floor)"
         end
     end

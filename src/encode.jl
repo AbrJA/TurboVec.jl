@@ -13,7 +13,6 @@
 # query side plus a `-<q_rot, shift>` bias correction. An uncalibrated
 # index is arithmetically the identity pair.
 
-const NORM_CHAINS = 8
 const MAX_INPUT_MAGNITUDE = 1.0f16
 
 """L2 norm at or below which a vector has no representable direction.

@@ -27,6 +27,11 @@
         @test occursin("uncalibrated", s)
         @test occursin("lazy", sprint(show, TurboQuantIndex(bits)))
 
+        p = sprint(show, MIME"text/plain"(), idx)
+        @test occursin("TurboQuantIndex:", p)
+        @test occursin("$dim features", p)
+        @test occursin("codes: ", p)
+
         cidx = TurboQuantIndex(dim, bits)
         calibrate!(cidx, X)
         @test occursin("calibrated", sprint(show, cidx))
@@ -34,6 +39,42 @@
         m = IdMapIndex(dim, bits)
         add_with_ids!(m, X, UInt64.(1:n))
         @test occursin("$n ids", sprint(show, m))
+        pm = sprint(show, MIME"text/plain"(), m)
+        @test occursin("IdMapIndex:", pm)
+        @test occursin("$n ids", pm)
+    end
+
+    @testset "equality" begin
+        a = TurboQuantIndex(dim, bits)
+        b = TurboQuantIndex(dim, bits)
+        @test a == b
+        @test a != TurboQuantIndex(dim + 8, bits)
+        @test a != TurboQuantIndex(dim, 2)
+        add!(a, X)
+        add!(b, X)
+        @test a == b
+        add!(b, X[1:1, :])
+        @test a != b
+        c = copy(a)
+        empty!(c)
+        @test a != c
+        cidx = TurboQuantIndex(dim, bits)
+        calibrate!(cidx, X)
+        add!(cidx, X)
+        @test cidx != a
+        @test cidx == copy(cidx)
+
+        m1 = IdMapIndex(dim, bits)
+        add_with_ids!(m1, X, UInt64.(1:n))
+        m2 = IdMapIndex(dim, bits)
+        add_with_ids!(m2, X, UInt64.(1:n))
+        @test m1 == m2
+        m3 = copy(m1)
+        remove!(m3, 1)
+        @test m1 != m3
+        m4 = IdMapIndex(dim, bits)
+        add_with_ids!(m4, X, UInt64.(2:(n + 1)))
+        @test m1 != m4
     end
 
     @testset "copy is independent" begin
