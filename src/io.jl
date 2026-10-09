@@ -76,9 +76,10 @@ end
     x
 end
 
-@inline _load_u32_le(b::AbstractVector{UInt8}, off::Int) =
-    UInt32(b[off]) | (UInt32(b[off + 1]) << 8) |
-    (UInt32(b[off + 2]) << 16) | (UInt32(b[off + 3]) << 24)
+@inline _load_u32_le(b::AbstractVector{UInt8}, off::Int) = UInt32(b[off]) |
+                                                           (UInt32(b[off + 1]) << 8) |
+                                                           (UInt32(b[off + 2]) << 16) |
+                                                           (UInt32(b[off + 3]) << 24)
 
 @inline _byte_view(x::AbstractVector{UInt8}) = x
 @inline _byte_view(x::AbstractArray) = reinterpret(UInt8, vec(x))
@@ -128,8 +129,7 @@ function _check_implied_size(kind::UInt8, bits::Int, dim::Int, n::Int,
     kind == TV_KIND_IDMAP && (total += rows * 8)
     calibrated && (total += 8 * UInt64(dim))
     total <= TV_MAX_IMPLIED_BYTES ||
-        throw(InvalidFileFormat(
-            "file claims $total bytes of payload, above the $TV_MAX_IMPLIED_BYTES safety cap"))
+        throw(InvalidFileFormat("file claims $total bytes of payload, above the $TV_MAX_IMPLIED_BYTES safety cap"))
     nothing
 end
 
@@ -300,16 +300,18 @@ end
 Serialize an index to an in-memory buffer using the same versioned
 layout as [`write_index`](@ref).
 """
-to_bytes(index::TurboQuantIndex) =
+function to_bytes(index::TurboQuantIndex)
     (io = IOBuffer(; sizehint = serialized_len(index)); write_index(io, index); take!(io))
-to_bytes(index::IdMapIndex) =
+end
+function to_bytes(index::IdMapIndex)
     (io = IOBuffer(; sizehint = serialized_len(index)); write_idmap(io, index); take!(io))
+end
 
 """Deserialize an index produced by [`to_bytes`](@ref)."""
-from_bytes(::Type{TurboQuantIndex}, bytes::AbstractVector{UInt8}) =
+function from_bytes(::Type{TurboQuantIndex}, bytes::AbstractVector{UInt8})
     load_index(IOBuffer(bytes))
-from_bytes(::Type{IdMapIndex}, bytes::AbstractVector{UInt8}) =
-    load_idmap(IOBuffer(bytes))
+end
+from_bytes(::Type{IdMapIndex}, bytes::AbstractVector{UInt8}) = load_idmap(IOBuffer(bytes))
 
 """
     write_index(path, index)

@@ -1,0 +1,8 @@
+# JuliaFormatter configuration: YAS style tuned to the conventions the
+# package was written in (keep `for ... in`, keep `by = ...` without a
+# semicolon, no forced `return`, docstrings untouched).
+style = "yas"
+always_use_return = false
+whitespace_in_kwargs = true
+format_docstrings = false
+separate_kwargs_with_semicolon = false

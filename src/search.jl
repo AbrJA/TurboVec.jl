@@ -203,7 +203,7 @@ function _prepare_lut(index::TurboQuantIndex, qrow::AbstractVector{Float32},
     @inbounds for d in 1:dim
         q[d] = qrow[d]
     end
-    apply_scaled_into!(index.rotation, q, 1.0f0, q, scratch)
+    apply_scaled_into!(index.rotation::Rotation, q, 1.0f0, q, scratch)
     bias_corr = 0.0f0
     calibrated = !isempty(index.tqplus_shift)
     if calibrated
@@ -259,11 +259,12 @@ function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::
             b1 = min(b0 + stride, index.n_blocks)
             b0 >= b1 && continue
             r = results[t]
-            push!(tasks, Threads.@spawn begin
-                out = Vector{Float32}(undef, 64)
-                _scan_blocks!(r, prep, index.codes, index.scales, index.n,
-                              b0, b1, mask, out)
-            end)
+            push!(tasks,
+                  Threads.@spawn begin
+                      out = Vector{Float32}(undef, 64)
+                      _scan_blocks!(r, prep, index.codes, index.scales, index.n,
+                                    b0, b1, mask, out)
+                  end)
         end
         foreach(wait, tasks)
         for t in 1:nt
@@ -400,8 +401,8 @@ function _search_batch!(index::TurboQuantIndex, queries::AbstractMatrix{Float32}
                 s, ix = _search_one!(index, view(queries, qa, :), k_eff, false, mask)
                 _write_row!(scores, indices, qa, s, ix, k_eff)
             else
-                (sA, iA), (sB, iB) = _search_two!(
-                    index, view(queries, qa, :), view(queries, qb, :), k_eff, mask)
+                (sA, iA), (sB, iB) = _search_two!(index, view(queries, qa, :),
+                                                  view(queries, qb, :), k_eff, mask)
                 _write_row!(scores, indices, qa, sA, iA, k_eff)
                 _write_row!(scores, indices, qb, sB, iB, k_eff)
             end
@@ -460,18 +461,23 @@ function search(index::TurboQuantIndex, queries::AbstractMatrix{Float32}, k::Int
     (scores, indices)
 end
 
-search(index::TurboQuantIndex, queries::AbstractMatrix{Float32}, k::Integer,
-       mask::AbstractVector{Bool}) = search(index, queries, k; mask = mask)
+function search(index::TurboQuantIndex, queries::AbstractMatrix{Float32}, k::Integer,
+                mask::AbstractVector{Bool})
+    search(index, queries, k; mask = mask)
+end
 
-search(index::TurboQuantIndex, queries::AbstractMatrix{<:Real}, k::Integer;
-       mask::Union{Nothing,AbstractVector{Bool}} = nothing) =
+function search(index::TurboQuantIndex, queries::AbstractMatrix{<:Real}, k::Integer;
+                mask::Union{Nothing,AbstractVector{Bool}} = nothing)
     search(index, Float32.(queries), k; mask = mask)
+end
 
 """Single-query convenience: returns `1 × k_eff` matrices."""
-search(index::TurboQuantIndex, q::AbstractVector{Float32}, k::Integer;
-       mask::Union{Nothing,AbstractVector{Bool}} = nothing) =
+function search(index::TurboQuantIndex, q::AbstractVector{Float32}, k::Integer;
+                mask::Union{Nothing,AbstractVector{Bool}} = nothing)
     search(index, reshape(q, 1, :), k; mask = mask)
+end
 
-search(index::TurboQuantIndex, q::AbstractVector{<:Real}, k::Integer;
-       mask::Union{Nothing,AbstractVector{Bool}} = nothing) =
+function search(index::TurboQuantIndex, q::AbstractVector{<:Real}, k::Integer;
+                mask::Union{Nothing,AbstractVector{Bool}} = nothing)
     search(index, reshape(Float32.(q), 1, :), k; mask = mask)
+end

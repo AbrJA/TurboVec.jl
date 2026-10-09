@@ -46,7 +46,7 @@ const _CRC32C_TABLES = _crc32c_tables()
     i = 1
     @inbounds while i + 7 <= n
         crc ⊻= UInt32(data[i]) | (UInt32(data[i + 1]) << 8) |
-                (UInt32(data[i + 2]) << 16) | (UInt32(data[i + 3]) << 24)
+               (UInt32(data[i + 2]) << 16) | (UInt32(data[i + 3]) << 24)
         crc = t8[Int(crc & 0xff) + 1] ⊻
               t7[Int((crc >> 8) & 0xff) + 1] ⊻
               t6[Int((crc >> 16) & 0xff) + 1] ⊻

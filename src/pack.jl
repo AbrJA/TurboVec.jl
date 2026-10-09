@@ -38,19 +38,18 @@ function write_codes_lane!(blocked::AbstractVector{UInt8}, lane::Int,
     @inbounds if bits == 2
         for c in 0:(chunks - 1)
             o = 8c
-            blocked[byte_offset(b, 2c, l, ng)] =
-                (codes[o + 1] << 6) | (codes[o + 2] << 4) |
-                (codes[o + 3] << 2) | codes[o + 4]
-            blocked[byte_offset(b, 2c + 1, l, ng)] =
-                (codes[o + 5] << 6) | (codes[o + 6] << 4) |
-                (codes[o + 7] << 2) | codes[o + 8]
+            blocked[byte_offset(b, 2c, l, ng)] = (codes[o + 1] << 6) | (codes[o + 2] << 4) |
+                                                 (codes[o + 3] << 2) | codes[o + 4]
+            blocked[byte_offset(b, 2c + 1, l, ng)] = (codes[o + 5] << 6) |
+                                                     (codes[o + 6] << 4) |
+                                                     (codes[o + 7] << 2) | codes[o + 8]
         end
     else
         for c in 0:(chunks - 1)
             o = 8c
             for k in 0:3
-                blocked[byte_offset(b, 4c + k, l, ng)] =
-                    (codes[o + 2k + 1] << 4) | codes[o + 2k + 2]
+                blocked[byte_offset(b, 4c + k, l, ng)] = (codes[o + 2k + 1] << 4) |
+                                                         codes[o + 2k + 2]
             end
         end
     end

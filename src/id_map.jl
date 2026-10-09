@@ -14,24 +14,25 @@ end
 end
 
 # Predicate form: `false` when the id cannot name any stored vector.
-@inline _uid_or_nothing(id::Integer) =
-    0 <= id <= typemax(UInt64) ? UInt64(id) : nothing
+@inline _uid_or_nothing(id::Integer) = 0 <= id <= typemax(UInt64) ? UInt64(id) : nothing
 
 """
     IdMapIndex(dim, bit_width)
 
 An id-map index with a known dimensionality.
 """
-IdMapIndex(dim::Integer, bit_width::Integer) =
+function IdMapIndex(dim::Integer, bit_width::Integer)
     IdMapIndex(TurboQuantIndex(dim, bit_width), UInt64[], Dict{UInt64,Int}())
+end
 
 """
     IdMapIndex(bit_width)
 
 An id-map index without a committed dim; inferred on the first add.
 """
-IdMapIndex(bit_width::Integer) =
+function IdMapIndex(bit_width::Integer)
     IdMapIndex(TurboQuantIndex(bit_width), UInt64[], Dict{UInt64,Int}())
+end
 
 Base.length(index::IdMapIndex) = index.inner.n
 Base.isempty(index::IdMapIndex) = index.inner.n == 0
@@ -52,8 +53,9 @@ calibration(index::IdMapIndex) = calibration(index.inner)
 Ids that cannot be represented as a `UInt64` (e.g. negative) are simply
 not present, so this returns `false` rather than throwing.
 """
-contains_id(index::IdMapIndex, id::Integer) =
+function contains_id(index::IdMapIndex, id::Integer)
     (u = _uid_or_nothing(id)) === nothing ? false : haskey(index.id_to_slot, u)
+end
 
 """Idiomatic membership: `id in index`."""
 Base.in(id::Integer, index::IdMapIndex) = contains_id(index, id)
@@ -70,8 +72,7 @@ Base.eltype(::Type{IdMapIndex}) = UInt64
 
 """`size(index) == (length(index), dim(index))`."""
 Base.size(index::IdMapIndex) = (length(index), dim(index))
-Base.size(index::IdMapIndex, d::Integer) =
-    d == 1 ? length(index) : d == 2 ? dim(index) : 1
+Base.size(index::IdMapIndex, d::Integer) = d == 1 ? length(index) : d == 2 ? dim(index) : 1
 
 function Base.show(io::IO, index::IdMapIndex)
     print(io, "IdMapIndex(")
@@ -108,8 +109,9 @@ function Base.:(==)(a::IdMapIndex, b::IdMapIndex)
 end
 
 """Deep copy (inner index, id tables)."""
-Base.copy(index::IdMapIndex) =
+function Base.copy(index::IdMapIndex)
     IdMapIndex(copy(index.inner), copy(index.slot_to_id), copy(index.id_to_slot))
+end
 
 """Drop every stored vector/id and the calibration; keep committed geometry."""
 function Base.empty!(index::IdMapIndex)
@@ -181,15 +183,19 @@ function add_with_ids!(index::IdMapIndex, X::AbstractMatrix{Float32},
     index
 end
 
-add_with_ids!(index::IdMapIndex, X::AbstractMatrix{<:Real},
-              ids::AbstractVector{<:Integer}) = add_with_ids!(index, Float32.(X), ids)
+function add_with_ids!(index::IdMapIndex, X::AbstractMatrix{<:Real},
+                       ids::AbstractVector{<:Integer})
+    add_with_ids!(index, Float32.(X), ids)
+end
 
 """Add one vector with one external id."""
-add_with_ids!(index::IdMapIndex, x::AbstractVector{Float32}, id::Integer) =
+function add_with_ids!(index::IdMapIndex, x::AbstractVector{Float32}, id::Integer)
     add_with_ids!(index, reshape(x, 1, :), [id])
+end
 
-add_with_ids!(index::IdMapIndex, x::AbstractVector{<:Real}, id::Integer) =
+function add_with_ids!(index::IdMapIndex, x::AbstractVector{<:Real}, id::Integer)
     add_with_ids!(index, reshape(Float32.(x), 1, :), [id])
+end
 
 """Remove the vector with external `id`. Returns `true` if present.
 
@@ -254,22 +260,26 @@ function search(index::IdMapIndex, queries::AbstractMatrix{Float32}, k::Integer;
     (scores, ids)
 end
 
-search(index::IdMapIndex, queries::AbstractMatrix{Float32}, k::Integer,
-       allowlist::AbstractVector{<:Integer}) =
+function search(index::IdMapIndex, queries::AbstractMatrix{Float32}, k::Integer,
+                allowlist::AbstractVector{<:Integer})
     search(index, queries, k; allowlist = allowlist)
+end
 
-search(index::IdMapIndex, queries::AbstractMatrix{<:Real}, k::Integer;
-       allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing) =
+function search(index::IdMapIndex, queries::AbstractMatrix{<:Real}, k::Integer;
+                allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing)
     search(index, Float32.(queries), k; allowlist = allowlist)
+end
 
 """Single-query convenience: returns `1 × k_eff` matrices."""
-search(index::IdMapIndex, q::AbstractVector{Float32}, k::Integer;
-       allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing) =
+function search(index::IdMapIndex, q::AbstractVector{Float32}, k::Integer;
+                allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing)
     search(index, reshape(q, 1, :), k; allowlist = allowlist)
+end
 
-search(index::IdMapIndex, q::AbstractVector{<:Real}, k::Integer;
-       allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing) =
+function search(index::IdMapIndex, q::AbstractVector{<:Real}, k::Integer;
+                allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing)
     search(index, reshape(Float32.(q), 1, :), k; allowlist = allowlist)
+end
 
 """Fit a TQ+ calibration and re-encode stored rows."""
 function calibrate!(index::IdMapIndex, sample::AbstractMatrix{Float32})
@@ -277,5 +287,6 @@ function calibrate!(index::IdMapIndex, sample::AbstractMatrix{Float32})
     index
 end
 
-calibrate!(index::IdMapIndex, sample::AbstractMatrix{<:Real}) =
+function calibrate!(index::IdMapIndex, sample::AbstractMatrix{<:Real})
     calibrate!(index, Float32.(sample))
+end

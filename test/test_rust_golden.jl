@@ -26,24 +26,22 @@ function rust_corpus(dim::Int, bits::Int, n::Int)
     X
 end
 
-hexbytes(s::String) = UInt8[parse(UInt8, s[i:i+1], base = 16) for i in 1:2:length(s)]
+hexbytes(s::String) = UInt8[parse(UInt8, s[i:(i + 1)], base = 16) for i in 1:2:length(s)]
 
 @testset "rust encode golden" begin
-    cases = (
-        (4, 32, 8,
-         "c79c67ab3444873cdfcfe68408b25a51247cf8b86761c88d53cfde01a8020370" *
-         "937ab431bc931ad5f1713c1e0696c9a35d52e59788cbb82ca0708a465e3f07fb" *
-         "3eec6a2fcba656e4adde4ca11829a256228d642f980dbc424e73689b81989776" *
-         "77b3af5363209b374bef02de96d0dc2d8c42a747aa7d2fc555784e0e1a9619b0"),
-        (2, 32, 8,
-         "c7b274257a368990fe62344e45f4cea14e0e46a846f1b8046ce28507229d0474" *
-         "a57d9332c6824d1bea63183715246329156b9092efcf5d7ea697b63459e90e88"),
-        (3, 40, 8,
-         "c0ac58efdc66f5e240affd018d5e12d9f10059e144ba25bd829107cd447fa219" *
-         "894f09059053f3dd7256a29c62a9e15135a5536b79c569c48cb4ca9eee4dde5e" *
-         "7691ecf02b5928520d1c87543dc3765632c27974e1ab131689597d7764347c96" *
-         "c0b807b6783e4ac9cfd700ff74f67aecb2abafe0172cb700"),
-    )
+    cases = ((4, 32, 8,
+              "c79c67ab3444873cdfcfe68408b25a51247cf8b86761c88d53cfde01a8020370" *
+              "937ab431bc931ad5f1713c1e0696c9a35d52e59788cbb82ca0708a465e3f07fb" *
+              "3eec6a2fcba656e4adde4ca11829a256228d642f980dbc424e73689b81989776" *
+              "77b3af5363209b374bef02de96d0dc2d8c42a747aa7d2fc555784e0e1a9619b0"),
+             (2, 32, 8,
+              "c7b274257a368990fe62344e45f4cea14e0e46a846f1b8046ce28507229d0474" *
+              "a57d9332c6824d1bea63183715246329156b9092efcf5d7ea697b63459e90e88"),
+             (3, 40, 8,
+              "c0ac58efdc66f5e240affd018d5e12d9f10059e144ba25bd829107cd447fa219" *
+              "894f09059053f3dd7256a29c62a9e15135a5536b79c569c48cb4ca9eee4dde5e" *
+              "7691ecf02b5928520d1c87543dc3765632c27974e1ab131689597d7764347c96" *
+              "c0b807b6783e4ac9cfd700ff74f67aecb2abafe0172cb700"))
     for (bits, dim, n, hex) in cases
         X = rust_corpus(dim, bits, n)
         idx = TurboQuantIndex(dim, bits)

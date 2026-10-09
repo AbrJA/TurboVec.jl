@@ -52,9 +52,9 @@
         @test_throws BitWidthOutOfRange from_parts(dim, 0, n, pc, sc)
         @test_throws DimNotPositiveMultipleOf8 from_parts(12, bits, 0, UInt8[], Float32[])
         @test_throws DimTooLarge from_parts(MAX_DIM + 8, bits, 0, UInt8[], Float32[])
-        @test_throws InvalidParts from_parts(dim, bits, n, pc[1:end-1], sc)
+        @test_throws InvalidParts from_parts(dim, bits, n, pc[1:(end - 1)], sc)
         @test_throws InvalidParts from_parts(dim, bits, n, vcat(pc, UInt8[0]), sc)
-        @test_throws InvalidParts from_parts(dim, bits, n, pc, sc[1:end-1])
+        @test_throws InvalidParts from_parts(dim, bits, n, pc, sc[1:(end - 1)])
         @test_throws InvalidParts from_parts(dim, bits, n, pc, vcat(sc, Float32[1.0]))
         @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, Float32[0.0], Float32[])
         @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, Float32[], Float32[1.0])
@@ -78,14 +78,14 @@
         good_shift = zeros(Float32, dim)
         good_scale = ones(Float32, dim)
         for bad in (NaN32, Inf32)
-            @test_throws InvalidParts from_parts(
-                dim, bits, n, pc, sc, fill(bad, dim), good_scale)
-            @test_throws InvalidParts from_parts(
-                dim, bits, n, pc, sc, good_shift, fill(bad, dim))
+            @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, fill(bad, dim),
+                                                 good_scale)
+            @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, good_shift,
+                                                 fill(bad, dim))
         end
-        @test_throws InvalidParts from_parts(
-            dim, bits, n, pc, sc, good_shift, zeros(Float32, dim))
-        @test_throws InvalidParts from_parts(
-            dim, bits, n, pc, sc, good_shift, -ones(Float32, dim))
+        @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, good_shift,
+                                             zeros(Float32, dim))
+        @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, good_shift,
+                                             -ones(Float32, dim))
     end
 end

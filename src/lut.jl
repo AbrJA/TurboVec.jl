@@ -75,7 +75,7 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
             # first sub-table: coords ds .. ds+cpn-1
             @inbounds for c in 0:(cpn - 1)
                 qq = q_rot_row[ds + c + 1]
-                for code in 0:(1 << bits)-1
+                for code in 0:((1 << bits) - 1)
                     prods[c + 1, code + 1] = qq * centroids[code + 1]
                 end
             end
@@ -95,7 +95,7 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
             # second sub-table: coords ds+cpn ..
             @inbounds for c in 0:(cpn - 1)
                 qq = q_rot_row[ds + cpn + c + 1]
-                for code in 0:(1 << bits)-1
+                for code in 0:((1 << bits) - 1)
                     prods[c + 1, code + 1] = qq * centroids[code + 1]
                 end
             end

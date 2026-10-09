@@ -78,7 +78,8 @@
         @test size(s) == (nq, 3)
         @test all(v -> v in (ids[3], ids[7], ids[190]), got)
         for r in 1:nq
-            allowed = [(full_s[r, j], full_i[r, j]) for j in 1:n
+            allowed = [(full_s[r, j], full_i[r, j])
+                       for j in 1:n
                        if full_i[r, j] in (3, 7, 190)]
             expected = sort(allowed; by = x -> (-x[1], x[2]))
             @test got[r, :] == [ids[e[2]] for e in expected]

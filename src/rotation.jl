@@ -11,10 +11,10 @@
 
 const ROTATION_K = 2
 
-const ROTATION_SEED = UInt8[
-    164, 143, 161, 123, 88, 50, 61, 10, 234, 184, 161, 204, 105, 1, 20, 184,
-    43, 140, 200, 117, 24, 180, 247, 84, 141, 68, 110, 161, 228, 223, 32, 242,
-]
+const ROTATION_SEED = UInt8[164, 143, 161, 123, 88, 50, 61, 10, 234, 184, 161, 204, 105, 1,
+                            20, 184,
+                            43, 140, 200, 117, 24, 180, 247, 84, 141, 68, 110, 161, 228,
+                            223, 32, 242]
 
 """Largest power-of-two divisor of `dim` (always >= 8)."""
 block_size(dim::Int) = dim & -dim
@@ -76,16 +76,30 @@ end
             j = i
             jend = i + len - 1
             while j <= jend
-                a = blk[j]; b = blk[j + len]
-                c = blk[j + 2len]; d = blk[j + 3len]
-                e = blk[j + 4len]; f = blk[j + 5len]
-                g = blk[j + 6len]; h = blk[j + 7len]
-                apb = a + b; amb = a - b
-                cpd = c + d; cmd = c - d
-                epf = e + f; emf = e - f
-                gph = g + h; gmh = g - h
-                s0 = apb + cpd; s1 = amb + cmd; s2 = apb - cpd; s3 = amb - cmd
-                s4 = epf + gph; s5 = emf + gmh; s6 = epf - gph; s7 = emf - gmh
+                a = blk[j]
+                b = blk[j + len]
+                c = blk[j + 2len]
+                d = blk[j + 3len]
+                e = blk[j + 4len]
+                f = blk[j + 5len]
+                g = blk[j + 6len]
+                h = blk[j + 7len]
+                apb = a + b
+                amb = a - b
+                cpd = c + d
+                cmd = c - d
+                epf = e + f
+                emf = e - f
+                gph = g + h
+                gmh = g - h
+                s0 = apb + cpd
+                s1 = amb + cmd
+                s2 = apb - cpd
+                s3 = amb - cmd
+                s4 = epf + gph
+                s5 = emf + gmh
+                s6 = epf - gph
+                s7 = emf - gmh
                 blk[j] = s0 + s4
                 blk[j + len] = s1 + s5
                 blk[j + 2len] = s2 + s6
@@ -106,10 +120,14 @@ end
             j = i
             jend = i + len - 1
             while j <= jend
-                a = blk[j]; b = blk[j + len]
-                c = blk[j + 2len]; d = blk[j + 3len]
-                apb = a + b; amb = a - b
-                cpd = c + d; cmd = c - d
+                a = blk[j]
+                b = blk[j + len]
+                c = blk[j + 2len]
+                d = blk[j + 3len]
+                apb = a + b
+                amb = a - b
+                cpd = c + d
+                cmd = c - d
                 blk[j] = apb + cpd
                 blk[j + len] = amb + cmd
                 blk[j + 2len] = apb - cpd
@@ -126,7 +144,8 @@ end
             j = i
             jend = i + len - 1
             while j <= jend
-                a = blk[j]; b = blk[j + len]
+                a = blk[j]
+                b = blk[j + len]
                 blk[j] = a + b
                 blk[j + len] = a - b
                 j += 1

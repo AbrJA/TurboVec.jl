@@ -73,7 +73,7 @@ attributes #0 = { "target-features"="+avx2" }
 function scan_block_avx2!(codes::Ptr{UInt8}, lut::Ptr{UInt8}, ng::Int,
                           scale::Float32, bias::Float32, out::Ptr{Float32})
     Base.llvmcall((SCAN_IR_AVX2, "scan_block"), Cvoid,
-                  Tuple{Ptr{UInt8}, Ptr{UInt8}, Int, Float32, Float32, Ptr{Float32}},
+                  Tuple{Ptr{UInt8},Ptr{UInt8},Int,Float32,Float32,Ptr{Float32}},
                   codes, lut, ng, scale, bias, out)
     nothing
 end
@@ -211,8 +211,8 @@ function scan_pair2_avx2!(codes::Ptr{UInt8}, la::Ptr{UInt8}, lb::Ptr{UInt8},
                           ng::Int, sa::Float32, ba::Float32, sb::Float32,
                           bb::Float32, oa::Ptr{Float32}, ob::Ptr{Float32})
     Base.llvmcall((SCAN_PAIR2_IR_AVX2, "scan_pair2"), Cvoid,
-                  Tuple{Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Int, Float32,
-                        Float32, Float32, Float32, Ptr{Float32}, Ptr{Float32}},
+                  Tuple{Ptr{UInt8},Ptr{UInt8},Ptr{UInt8},Int,Float32,
+                        Float32,Float32,Float32,Ptr{Float32},Ptr{Float32}},
                   codes, la, lb, ng, sa, ba, sb, bb, oa, ob)
     nothing
 end
@@ -319,7 +319,7 @@ attributes #0 = { "target-features"="+avx512f,+avx512bw" }
 function scan_pair_avx512!(c0::Ptr{UInt8}, c1::Ptr{UInt8}, lut::Ptr{UInt8}, ng::Int,
                            scale::Float32, bias::Float32, out::Ptr{Float32})
     Base.llvmcall((SCAN_PAIR_IR_AVX512, "scan_pair"), Cvoid,
-                  Tuple{Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Int, Float32, Float32,
+                  Tuple{Ptr{UInt8},Ptr{UInt8},Ptr{UInt8},Int,Float32,Float32,
                         Ptr{Float32}},
                   c0, c1, lut, ng, scale, bias, out)
     nothing
@@ -458,8 +458,8 @@ function scan_pair2_avx512!(c0::Ptr{UInt8}, c1::Ptr{UInt8}, la::Ptr{UInt8},
                             sb::Float32, bb::Float32, oa::Ptr{Float32},
                             ob::Ptr{Float32})
     Base.llvmcall((SCAN_PAIR2_IR_AVX512, "scan_pair2"), Cvoid,
-                  Tuple{Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Int,
-                        Float32, Float32, Float32, Float32, Ptr{Float32},
+                  Tuple{Ptr{UInt8},Ptr{UInt8},Ptr{UInt8},Ptr{UInt8},Int,
+                        Float32,Float32,Float32,Float32,Ptr{Float32},
                         Ptr{Float32}},
                   c0, c1, la, lb, ng, sa, ba, sb, bb, oa, ob)
     nothing

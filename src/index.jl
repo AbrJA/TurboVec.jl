@@ -67,8 +67,9 @@ dim_opt(index::TurboQuantIndex) = index.dim == 0 ? nothing : index.dim
 is_lazy(index::TurboQuantIndex) = index.dim == 0
 
 """`true` when a TQ+ per-coordinate calibration is committed."""
-calibration_state(index::TurboQuantIndex) =
+function calibration_state(index::TurboQuantIndex)
     isempty(index.tqplus_shift) ? :uncalibrated : :calibrated
+end
 
 """Grow the blocked code buffer to cover `n` vectors, zeroing new bytes."""
 function _grow_codes!(index::TurboQuantIndex, n::Int)
@@ -141,7 +142,7 @@ function add!(index::TurboQuantIndex, X::AbstractMatrix{Float32})
     # exists: each worker keeps its own row-sized buffers and feeds the
     # rotated row straight into the quantizer. Same per-row op order, so
     # the codes and scales are bit-identical to the two-pass version.
-    rot = index.rotation
+    rot = index.rotation::Rotation
     bits = index.bit_width
     if calibrated
         _encode_rows!(index, X, old_n, n, dim, rot, shift, scale_tq,
@@ -170,10 +171,12 @@ function _encode_rows!(index::TurboQuantIndex, X::AbstractMatrix{Float32},
                 nrm = simd_norm(src, dim)
                 inv = nrm > MIN_INPUT_NORM ? 1.0f0 / nrm : 0.0f0
                 apply_scaled_into!(rot, src, inv, dst, scratch)
-                index.scales[old_n + i] = quantize_scale_pack!(
-                    index.codes, old_n + i - 1, dst, shift, scale_tq,
-                    inv_scale_tq, index.centroids, index.boundaries, bits,
-                    dim, nrm, Val(CAL))
+                index.scales[old_n + i] = quantize_scale_pack!(index.codes, old_n + i - 1,
+                                                               dst, shift, scale_tq,
+                                                               inv_scale_tq,
+                                                               index.centroids,
+                                                               index.boundaries, bits,
+                                                               dim, nrm, Val(CAL))
             end
         end
     end
@@ -183,11 +186,11 @@ end
 add!(index::TurboQuantIndex, X::AbstractMatrix{<:Real}) = add!(index, Float32.(X))
 
 """Add a single vector (one row)."""
-add!(index::TurboQuantIndex, x::AbstractVector{Float32}) =
-    add!(index, reshape(x, 1, :))
+add!(index::TurboQuantIndex, x::AbstractVector{Float32}) = add!(index, reshape(x, 1, :))
 
-add!(index::TurboQuantIndex, x::AbstractVector{<:Real}) =
+function add!(index::TurboQuantIndex, x::AbstractVector{<:Real})
     add!(index, reshape(Float32.(x), 1, :))
+end
 
 """
     calibrate!(index, sample)
@@ -211,7 +214,7 @@ function calibrate!(index::TurboQuantIndex, sample::AbstractMatrix{Float32})
     if !had_dim
         _commit_geometry!(index, dim)
     end
-    rotation = index.rotation
+    rotation = index.rotation::Rotation
     rotated = Matrix{Float32}(undef, dim, nr)
     norms = Vector{Float32}(undef, nr)
     rotate_batch!(rotated, norms, sample, rotation)
@@ -235,8 +238,9 @@ function calibrate!(index::TurboQuantIndex, sample::AbstractMatrix{Float32})
     index
 end
 
-calibrate!(index::TurboQuantIndex, sample::AbstractMatrix{<:Real}) =
+function calibrate!(index::TurboQuantIndex, sample::AbstractMatrix{<:Real})
     calibrate!(index, Float32.(sample))
+end
 
 """Re-encode every stored row under `new_shift`/`new_scale`."""
 function _reencode_stored_rows!(index::TurboQuantIndex, new_shift::Vector{Float32},
@@ -309,8 +313,10 @@ The committed TQ+ calibration as `(shift = …, scale = …)`, or `nothing`
 when the index is uncalibrated. The returned vectors are live internal
 state — treat them as read-only.
 """
-calibration(index::TurboQuantIndex) =
-    is_calibrated(index) ? (shift = index.tqplus_shift, scale = index.tqplus_scale) : nothing
+function calibration(index::TurboQuantIndex)
+    is_calibrated(index) ? (shift = index.tqplus_shift, scale = index.tqplus_scale) :
+    nothing
+end
 
 """No-op kept for API parity: this port has no search caches to warm."""
 prepare(index::TurboQuantIndex) = index
@@ -340,8 +346,7 @@ end
 
 """`size(index) == (length(index), dim(index))`."""
 Base.size(index::TurboQuantIndex) = (index.n, index.dim)
-Base.size(index::TurboQuantIndex, d::Integer) =
-    d == 1 ? index.n : d == 2 ? index.dim : 1
+Base.size(index::TurboQuantIndex, d::Integer) = d == 1 ? index.n : d == 2 ? index.dim : 1
 
 function Base.show(io::IO, index::TurboQuantIndex)
     print(io, "TurboQuantIndex(")
@@ -477,8 +482,7 @@ function from_parts(dim::Integer, bit_width::Integer, n::Integer,
     _check_dim(d)
     bytes_per_row = bits * (d ÷ 8)
     if length(packed) != nn * bytes_per_row
-        throw(InvalidParts(
-            "packed codes length $(length(packed)) does not match n * bytes_per_row = $(nn * bytes_per_row)"))
+        throw(InvalidParts("packed codes length $(length(packed)) does not match n * bytes_per_row = $(nn * bytes_per_row)"))
     end
     length(scales) == nn ||
         throw(InvalidParts("scales length $(length(scales)) does not match n_vectors $nn"))
@@ -487,8 +491,10 @@ function from_parts(dim::Integer, bit_width::Integer, n::Integer,
     has_shift != has_scale &&
         throw(InvalidParts("tqplus_shift and tqplus_scale must both be empty or both be length dim"))
     if has_shift
-        length(tqplus_shift) == d || throw(InvalidParts("tqplus_shift length must equal dim"))
-        length(tqplus_scale) == d || throw(InvalidParts("tqplus_scale length must equal dim"))
+        length(tqplus_shift) == d ||
+            throw(InvalidParts("tqplus_shift length must equal dim"))
+        length(tqplus_scale) == d ||
+            throw(InvalidParts("tqplus_scale length must equal dim"))
         msg = _calibration_error(tqplus_shift, tqplus_scale)
         msg === nothing || throw(InvalidParts(msg))
     end

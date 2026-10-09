@@ -20,8 +20,8 @@
         shift = fill(cap, dim)
         ok = from_parts(dim, bits, n, pc, sc, shift, ones(Float32, dim))
         @test tqplus_shift(ok) == shift
-        @test_throws InvalidParts from_parts(
-            dim, bits, n, pc, sc, fill(20.0f0 * cap, dim), ones(Float32, dim))
+        @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, fill(20.0f0 * cap, dim),
+                                             ones(Float32, dim))
     end
 
     @testset "TQ+ scale floor is inclusive" begin
@@ -30,8 +30,8 @@
         shift = fill(1.0f-3, dim)
         ok = from_parts(dim, bits, n, pc, sc, shift, scale)
         @test tqplus_scale(ok) == scale
-        @test_throws InvalidParts from_parts(
-            dim, bits, n, pc, sc, shift, fill(floor / 20.0f0, dim))
+        @test_throws InvalidParts from_parts(dim, bits, n, pc, sc, shift,
+                                             fill(floor / 20.0f0, dim))
     end
 
     @testset "per-vector scale bound is inclusive" begin
@@ -60,13 +60,13 @@
         # Header 27 bytes, then centroids (2^bits) and boundaries
         # (2^bits - 1) f32, then the TQ+ shift.
         shift_start = 27 + (1 << bits) * 4 + ((1 << bits) - 1) * 4 + 1
-        bytes[shift_start:shift_start + 3] = UInt8[0x00, 0x00, 0xc0, 0x7f]  # NaN
+        bytes[shift_start:(shift_start + 3)] = UInt8[0x00, 0x00, 0xc0, 0x7f]  # NaN
         @test_throws InvalidFileFormat from_bytes(TurboQuantIndex, bytes)
 
         good_scale = to_bytes(from_parts(dim, bits, n, pc, sc,
                                          fill(0.01f0, dim), fill(1.1f0, dim)))
         scale_start = shift_start + dim * 4
-        good_scale[scale_start:scale_start + 3] = UInt8[0x00, 0x00, 0x00, 0x00]  # 0.0
+        good_scale[scale_start:(scale_start + 3)] = UInt8[0x00, 0x00, 0x00, 0x00]  # 0.0
         @test_throws InvalidFileFormat from_bytes(TurboQuantIndex, good_scale)
     end
 end

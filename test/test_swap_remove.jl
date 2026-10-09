@@ -55,8 +55,8 @@
         for to_delete in (11, 6, 41, 1)
             last = length(live_at_slot)
             swap_remove!(idx, to_delete)
-            live_at_slot[to_delete], live_at_slot[last] =
-                live_at_slot[last], live_at_slot[to_delete]
+            live_at_slot[to_delete], live_at_slot[last] = live_at_slot[last],
+                                                          live_at_slot[to_delete]
             pop!(live_at_slot)
         end
         for (slot, orig) in enumerate(live_at_slot)

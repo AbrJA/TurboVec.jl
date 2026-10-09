@@ -8,8 +8,8 @@
 
 const LANCZOS_G = 7.0
 const LANCZOS_COEF = (0.99999999999980993, 676.5203681218851, -1259.1392167224028,
-    771.32342877765313, -176.61502916214059, 12.507343278686905,
-    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7)
+                      771.32342877765313, -176.61502916214059, 12.507343278686905,
+                      -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7)
 
 function loggamma(z::Float64)
     if z < 0.5
@@ -136,9 +136,8 @@ function lloyd_max(bits::Int, dim::Int, max_iter::Int, tol::Float64)
             if prob < 1.0e-15
                 new_centroids[i] = centroids[i]
             else
-                mean = adaptive_simpson(
-                    x -> x * beta_pdf((x + 1.0) / 2.0, a, a) / 2.0,
-                    lo, hi, 1.0e-14, 50)
+                mean = adaptive_simpson(x -> x * beta_pdf((x + 1.0) / 2.0, a, a) / 2.0,
+                                        lo, hi, 1.0e-14, 50)
                 new_centroids[i] = mean / prob
             end
         end
@@ -160,7 +159,7 @@ end
 
 """Named codebook arrays: `(boundaries = …, centroids = …)`."""
 const Codebook = NamedTuple{(:boundaries, :centroids),
-                           Tuple{Vector{Float32},Vector{Float32}}}
+                            Tuple{Vector{Float32},Vector{Float32}}}
 
 const CODEBOOK_MEMO = Dict{Tuple{Int,Int},Codebook}()
 const CODEBOOK_LOCK = ReentrantLock()

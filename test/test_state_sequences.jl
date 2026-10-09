@@ -18,7 +18,7 @@
             @test length(loaded) == 50
             # every vector still self-queries
             for r in (1, 40, 45, 50)
-                row = r <= 40 ? X[r:r, :] : X2[r-40:r-40, :]
+                row = r <= 40 ? X[r:r, :] : X2[(r - 40):(r - 40), :]
                 _, i = search(loaded, row, 1)
                 @test i[1, 1] == r
             end
@@ -74,7 +74,9 @@
         @test length(m) == 14
         for (slot, id) in enumerate(external_ids(m))
             row = if id in UInt64[500, 501, 502]
-                Y[findfirst(isequal(id), UInt64[500, 501, 502]):findfirst(isequal(id), UInt64[500, 501, 502]), :]
+                Y[findfirst(isequal(id), UInt64[500, 501, 502]):findfirst(isequal(id),
+                                                                          UInt64[500, 501,
+                                                                                 502]), :]
             else
                 X[findfirst(isequal(id), ids):findfirst(isequal(id), ids), :]
             end

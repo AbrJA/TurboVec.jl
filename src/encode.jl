@@ -32,14 +32,32 @@ const MIN_CALIBRATION_ROWS = 2
 
 """Fixed-order 8-chain Euclidean norm of one row (matches Rust `simd_norm`)."""
 @inline function simd_norm(row::AbstractVector{Float32}, n::Int)
-    c0 = 0.0f0; c1 = 0.0f0; c2 = 0.0f0; c3 = 0.0f0
-    c4 = 0.0f0; c5 = 0.0f0; c6 = 0.0f0; c7 = 0.0f0
+    c0 = 0.0f0
+    c1 = 0.0f0
+    c2 = 0.0f0
+    c3 = 0.0f0
+    c4 = 0.0f0
+    c5 = 0.0f0
+    c6 = 0.0f0
+    c7 = 0.0f0
     i = 1
     @inbounds while i + 7 <= n
-        x0 = row[i]; x1 = row[i + 1]; x2 = row[i + 2]; x3 = row[i + 3]
-        x4 = row[i + 4]; x5 = row[i + 5]; x6 = row[i + 6]; x7 = row[i + 7]
-        c0 += x0 * x0; c1 += x1 * x1; c2 += x2 * x2; c3 += x3 * x3
-        c4 += x4 * x4; c5 += x5 * x5; c6 += x6 * x6; c7 += x7 * x7
+        x0 = row[i]
+        x1 = row[i + 1]
+        x2 = row[i + 2]
+        x3 = row[i + 3]
+        x4 = row[i + 4]
+        x5 = row[i + 5]
+        x6 = row[i + 6]
+        x7 = row[i + 7]
+        c0 += x0 * x0
+        c1 += x1 * x1
+        c2 += x2 * x2
+        c3 += x3 * x3
+        c4 += x4 * x4
+        c5 += x5 * x5
+        c6 += x6 * x6
+        c7 += x7 * x7
         i += 8
     end
     @inbounds while i <= n
@@ -77,6 +95,31 @@ end
     reinterpret(Float32, k ⊻ mask)
 end
 
+# Fit one coordinate range of the TQ+ calibration. A separate function so
+# the spawned closure captures plain values (arguments) instead of boxed
+# enclosing-scope variables, and so each worker allocates one sort buffer
+# that it reuses across its coordinates.
+function _calibration_range!(shift::Vector{Float32}, scale::Vector{Float32},
+                             rotated::AbstractMatrix{Float32}, n::Int,
+                             lo::Int, hi::Int, k_lo::Int, k_hi::Int,
+                             span_q::Float32, lo_q::Float32)
+    keys = Vector{UInt32}(undef, n)
+    for d in lo:hi
+        @inbounds for i in 1:n
+            keys[i] = f32_sort_key(rotated[d, i])
+        end
+        qe_lo = f32_from_sort_key(partialsort!(keys, k_lo + 1))
+        qe_hi = f32_from_sort_key(partialsort!(keys, k_hi + 1))
+        span = qe_hi - qe_lo
+        if span > 1.0f-6
+            sc = span_q / span
+            shift[d] = lo_q / sc - qe_lo
+            scale[d] = sc
+        end
+    end
+    nothing
+end
+
 """
     compute_tqplus_calibration(rotated, n, dim, centroids) -> (shift, scale)
 
@@ -106,26 +149,9 @@ function compute_tqplus_calibration(rotated::AbstractMatrix{Float32}, n::Int,
 
     shift = zeros(Float32, dim)
     scale = ones(Float32, dim)
-    # One sort buffer per worker task, reused across the coordinates in
-    # that task's range: the old code allocated an n-element buffer per
-    # coordinate, which made `calibrate!` allocation-bound on the GC.
     @sync for (lo, hi) in _parallel_ranges(dim)
-        Threads.@spawn begin
-            keys = Vector{UInt32}(undef, n)
-            for d in lo:hi
-                @inbounds for i in 1:n
-                    keys[i] = f32_sort_key(rotated[d, i])
-                end
-                qe_lo = f32_from_sort_key(partialsort!(keys, lo_idx + 1))
-                qe_hi = f32_from_sort_key(partialsort!(keys, hi_idx + 1))
-                span = qe_hi - qe_lo
-                if span > 1.0f-6
-                    sc = qc_span / span
-                    shift[d] = qc_lo / sc - qe_lo
-                    scale[d] = sc
-                end
-            end
-        end
+        Threads.@spawn _calibration_range!(shift, scale, rotated, n, lo, hi,
+                                           lo_idx, hi_idx, qc_span, qc_lo)
     end
     (shift, scale)
 end
@@ -201,11 +227,15 @@ function quantize_scale_pack!(blocked::AbstractVector{UInt8}, lane::Int,
     chunks = dim ÷ 8
     limits = (1 << bits) - 1
 
-    a0 = 0.0; a1 = 0.0; a2 = 0.0; a3 = 0.0
+    a0 = 0.0
+    a1 = 0.0
+    a2 = 0.0
+    a3 = 0.0
     @inbounds for c in 0:(chunks - 1)
         offset = 8c
         if bits == 2
-            b0 = 0x00; b1 = 0x00
+            b0 = 0x00
+            b1 = 0x00
             for k in 0:7
                 j = offset + k + 1
                 local calib::Float32

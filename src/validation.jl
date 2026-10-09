@@ -8,12 +8,14 @@
 # instead of one layer owning the other's errors.
 
 """Smallest TQ+ scale at `dim` that cannot drive a divided query to overflow."""
-min_tqplus_scale(dim::Int) =
+function min_tqplus_scale(dim::Int)
     Float32(max(dim, 1)) * MAX_INPUT_MAGNITUDE / floatmax(Float32) * 10.0f0
+end
 
 """Largest TQ+ shift magnitude at `dim` whose bias dot product cannot overflow."""
-max_tqplus_shift(dim::Int) =
+function max_tqplus_shift(dim::Int)
     floatmax(Float32) / (Float32(max(dim, 1)) * MAX_INPUT_MAGNITUDE) / 10.0f0
+end
 
 """Largest per-vector renormalization scale that cannot by itself overflow."""
 const MAX_VECTOR_SCALE = 1.0f22

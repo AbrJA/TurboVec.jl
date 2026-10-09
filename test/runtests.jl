@@ -30,3 +30,9 @@ include("test_api_parity.jl")
 include("test_interface.jl")
 include("test_qa.jl")
 include("test_recall.jl")
+
+# Opt-in tooling checks, run by dedicated CI jobs:
+#   Pkg.test(; test_args = ["jet"])     static analysis
+#   Pkg.test(; test_args = ["format"])  formatting
+"jet" in ARGS && include("test_jet.jl")
+"format" in ARGS && include("test_format.jl")
