@@ -33,6 +33,28 @@
                 s2, i2 = TurboVec.sorted_results(h2)
                 @test s1 == s2
                 @test i1 == i2
+
+                if TurboVec.HAS_AVX512BW
+                    h3 = TurboVec.TopK(10)
+                    TurboVec._scan_blocks_avx512!(
+                        h3, prep.table, idx.codes, idx.scales, prep.ng, idx.n,
+                        prep.bias, prep.scale, 0, idx.n_blocks, nothing)
+                    @test TurboVec.sorted_results(h3) == (s1, i1)
+                    # range starting on an odd block exercises the tail path
+                    if idx.n_blocks > 1
+                        h4 = TurboVec.TopK(10)
+                        TurboVec._scan_blocks_avx512!(
+                            h4, prep.table, idx.codes, idx.scales, prep.ng, idx.n,
+                            prep.bias, prep.scale, 1, idx.n_blocks, nothing)
+                        h5 = TurboVec.TopK(10)
+                        TurboVec._scan_blocks_scalar!(
+                            h5, prep.comb, idx.codes, idx.scales, prep.ng, idx.n,
+                            prep.bias, prep.scale, 1, idx.n_blocks,
+                            Vector{Int32}(undef, 32), nothing)
+                        @test TurboVec.sorted_results(h4) ==
+                              TurboVec.sorted_results(h5)
+                    end
+                end
             end
         end
 

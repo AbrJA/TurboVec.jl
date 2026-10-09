@@ -122,10 +122,65 @@ function _scan_blocks_avx2!(topk::TopK, table::Vector{UInt8},
     nothing
 end
 
+@inline function _insert_lanes!(topk::TopK, out::Vector{Float32}, off::Int,
+                                base_vec::Int, n::Int, scales::Vector{Float32},
+                                mask::M) where {M}
+    @inbounds for l in 1:BLOCK
+        vi = base_vec + l
+        vi > n && break
+        if M !== Nothing
+            _mask_allows(mask, vi - 1) || continue
+        end
+        insert_result!(topk, out[off + l - 1] * scales[vi], vi - 1)
+    end
+    nothing
+end
+
+# Two 32-vector blocks per pass through the AVX-512 pair kernel, falling
+# back to the single-block AVX2 kernel for a leftover tail block.
+function _scan_blocks_avx512!(topk::TopK, table::Vector{UInt8},
+                              codes::Vector{UInt8}, scales::Vector{Float32},
+                              ng::Int, n::Int, bias::Float32, scale::Float32,
+                              bfirst::Int, blast::Int, mask::M) where {M}
+    out = Vector{Float32}(undef, 64)
+    stride = ng * BLOCK
+    GC.@preserve codes table out begin
+        pc = pointer(codes)
+        pl = pointer(table)
+        po = pointer(out)
+        b = bfirst
+        while b < blast
+            base_vec = b * BLOCK
+            if b + 1 < blast
+                if M !== Nothing &&
+                   !_mask_block_allows(mask, base_vec) &&
+                   !_mask_block_allows(mask, base_vec + BLOCK)
+                    b += 2
+                    continue
+                end
+                scan_pair_avx512!(pc + b * stride, pc + (b + 1) * stride, pl,
+                                  ng, scale, bias, po)
+                _insert_lanes!(topk, out, 1, base_vec, n, scales, mask)
+                _insert_lanes!(topk, out, BLOCK + 1, base_vec + BLOCK, n,
+                               scales, mask)
+                b += 2
+            else
+                scan_block_avx2!(pc + b * stride, pl, ng, scale, bias, po)
+                _insert_lanes!(topk, out, 1, base_vec, n, scales, mask)
+                b += 1
+            end
+        end
+    end
+    nothing
+end
+
 @inline function _scan_blocks!(topk::TopK, prep::PreparedLut,
                                codes::Vector{UInt8}, scales::Vector{Float32},
                                n::Int, bfirst::Int, blast::Int, mask::M) where {M}
-    if HAS_AVX2
+    if HAS_AVX512BW
+        _scan_blocks_avx512!(topk, prep.table, codes, scales, prep.ng, n,
+                             prep.bias, prep.scale, bfirst, blast, mask)
+    elseif HAS_AVX2
         _scan_blocks_avx2!(topk, prep.table, codes, scales, prep.ng, n,
                            prep.bias, prep.scale, bfirst, blast, mask)
     else

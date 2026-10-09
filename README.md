@@ -140,9 +140,9 @@ Deliberate differences:
   atomically;
 * the `.tv`/`.tvim` v2-v7 readers and `convert` tooling (this port has a
   single native format version);
-* the full AVX-512 VNNI/`vpermb` and NEON SDOT/SMMLA kernel families and
-  the two-stage "planes" shortlist. An AVX2 `vpshufb` kernel is ported
-  (`src/simd.jl`) with a bit-identical portable scalar fallback;
+* the AVX-512 VNNI/`vpermb` and NEON SDOT/SMMLA kernel families and the
+  two-stage "planes" shortlist. AVX-512BW and AVX2 `vpshufb` kernels are
+  ported (`src/simd.jl`) with a bit-identical portable scalar fallback;
 * warning hooks and allocation-count guarantees;
 * the Python framework integrations (LangChain, LlamaIndex, Haystack,
   Agno).
@@ -155,26 +155,25 @@ encode warmed. `add` is a single bulk insert of `n` vectors.
 
 | shape | Rust 1t add | Julia 1t add | Rust 16t add | Julia 16t add |
 | --- | --- | --- | --- | --- |
-| 768 / 4-bit / 100k | 0.99 s | 1.37 s | 0.49 s | 0.39 s |
-| 768 / 2-bit / 100k | 0.70 s | 1.06 s | 0.32 s | 0.29 s |
-| 1536 / 4-bit / 50k | 0.98 s | 1.56 s | 0.46 s | 0.47 s |
-| 1536 / 2-bit / 50k | 0.72 s | 1.23 s | 0.28 s | 0.40 s |
+| 768 / 4-bit / 100k | 0.99 s | 1.54 s | 0.49 s | 0.35 s |
+| 768 / 2-bit / 100k | 0.70 s | 1.08 s | 0.32 s | 0.29 s |
+| 1536 / 4-bit / 50k | 0.98 s | 1.85 s | 0.46 s | 0.58 s |
+| 1536 / 2-bit / 50k | 0.72 s | 1.23 s | 0.28 s | 0.39 s |
 
 | shape | Rust 1t search | Julia 1t search | Rust 16t search | Julia 16t search |
 | --- | --- | --- | --- | --- |
-| 768 / 4-bit / 100k | 1.61 ms | 3.86 ms | 0.21 ms | 0.50 ms |
-| 768 / 2-bit / 100k | 0.92 ms | 2.01 ms | 0.11 ms | 0.25 ms |
-| 1536 / 4-bit / 50k | 1.56 ms | 4.11 ms | 0.22 ms | 0.58 ms |
-| 1536 / 2-bit / 50k | 0.89 ms | 1.99 ms | 0.10 ms | 0.30 ms |
+| 768 / 4-bit / 100k | 1.61 ms | 3.50 ms | 0.21 ms | 0.44 ms |
+| 768 / 2-bit / 100k | 0.92 ms | 1.66 ms | 0.11 ms | 0.24 ms |
+| 1536 / 4-bit / 50k | 1.56 ms | 3.47 ms | 0.22 ms | 0.51 ms |
+| 1536 / 2-bit / 50k | 0.89 ms | 1.59 ms | 0.10 ms | 0.18 ms |
 
-Encode is within ~1.4x single-threaded and roughly on par with 16
-threads. Search is 2.2–2.9x slower: the Rust kernels are hand-written
-AVX-512/AVX2 kernels that resolve 32–64 codes per shuffle and use
-narrower accumulators, while this port's `vpshufb` kernel
-(`src/simd.jl`, selected at runtime via `Base.llvmcall`) resolves 32
-codes per shuffle with a portable scalar fallback. Earlier iterations
-were 5x slower; the remaining gap is kernel micro-optimization, not
-algorithm.
+Encode is within ~1.5x single-threaded and roughly on par with 16
+threads. Search is 1.7–2.2x slower: the Rust kernels are hand-tuned
+AVX-512/AVX2 kernels, while this port runs a 64-lane AVX-512BW pair
+kernel (`src/simd.jl`) with an AVX2 single-block kernel and a portable
+bit-identical scalar fallback, selected at runtime via `Base.llvmcall`.
+The first version of this port was 10–20x slower; the remaining gap is
+kernel micro-optimization and cache behavior, not algorithm.
 
 ## Testing
 
