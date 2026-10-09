@@ -1,0 +1,59 @@
+# AVX2 scan kernel parity: the vectorized kernel must produce exactly
+# the scores the scalar kernel does, for every bit width and layout
+# geometry (including partial tail blocks).
+
+@testset "simd kernel parity" begin
+    if !TurboVec.HAS_AVX2
+        @info "AVX2 not available; scalar kernel only"
+    else
+        rng = MersenneTwister(0x51D)
+        for bits in (2, 3, 4), dim in (32, 64, 256)
+            n = 100
+            X = rand_rows(rng, n, dim)
+            idx = TurboQuantIndex(dim, bits)
+            add!(idx, X)
+
+            for qi in 1:4
+                qrow = X[qi, :]
+                q = Vector{Float32}(undef, dim)
+                scratch = Vector{Float32}(undef, dim)
+                prep = TurboVec._prepare_lut(idx, qrow, q, scratch)
+
+                h1 = TurboVec.TopK(10)
+                TurboVec._scan_blocks_scalar!(
+                    h1, prep.comb, idx.codes, idx.scales, prep.ng, idx.n,
+                    prep.bias, prep.scale, 0, idx.n_blocks,
+                    Vector{Int32}(undef, 32), nothing)
+                h2 = TurboVec.TopK(10)
+                TurboVec._scan_blocks_avx2!(
+                    h2, prep.table, idx.codes, idx.scales, prep.ng, idx.n,
+                    prep.bias, prep.scale, 0, idx.n_blocks, nothing)
+
+                s1, i1 = TurboVec.sorted_results(h1)
+                s2, i2 = TurboVec.sorted_results(h2)
+                @test s1 == s2
+                @test i1 == i2
+            end
+        end
+
+        # Masked scans agree too.
+        idx = TurboQuantIndex(128, 4)
+        X = rand_rows(rng, 130, 128)
+        add!(idx, X)
+        mask = falses(130)
+        mask[1:7:end] .= true
+        pmask = TurboVec.pack_mask(mask)
+        prep = TurboVec._prepare_lut(idx, X[1, :], zeros(Float32, 128),
+                                     zeros(Float32, 128))
+        h1 = TurboVec.TopK(20)
+        TurboVec._scan_blocks_scalar!(h1, prep.comb, idx.codes, idx.scales,
+                                      prep.ng, idx.n, prep.bias, prep.scale,
+                                      0, idx.n_blocks,
+                                      Vector{Int32}(undef, 32), pmask)
+        h2 = TurboVec.TopK(20)
+        TurboVec._scan_blocks_avx2!(h2, prep.table, idx.codes, idx.scales,
+                                    prep.ng, idx.n, prep.bias, prep.scale,
+                                    0, idx.n_blocks, pmask)
+        @test TurboVec.sorted_results(h1) == TurboVec.sorted_results(h2)
+    end
+end
