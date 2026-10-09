@@ -16,6 +16,25 @@ Each proposal lists: location → problem → proposal → impact/effort.
 
 ---
 
+## Implementation status
+
+**Phase A (all P0 items) has landed** on top of `55c7b77`:
+
+| Item | Status | Commit |
+| --- | --- | --- |
+| P0-1 typed out-of-domain ids, P0-2 two-query tail | ✅ done | `d56eef3` |
+| P0-3/4/5 format v2 + CRC-32C + loader/atomic-write hardening | ✅ done | `13c7dad` |
+| P0-6/7/8 LUT/scan allocation removal | ✅ done | `1d4a623` |
+| P0-9 validation scan, P0-10 calibration buffers | ✅ done | `255c590` |
+| P0-11 precompile coverage | ✅ done | `ec77d7a` |
+| P0-12 changelog (registration + SemVer policy deferred by choice) | ✅ changelog done | this commit |
+
+Verified with the full `Pkg.test()` suite, the `--check-bounds=yes
+--depwarn=error` hardening run, and `dev/validate.jl` (all green).
+Phases B–D remain as described in §4.
+
+---
+
 ## 1. Where the port stands today
 
 The port is already unusually strong for a "first version":

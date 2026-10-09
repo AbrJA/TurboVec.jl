@@ -71,9 +71,12 @@ bit-identical regardless of the number of threads.
 
 ## Persistence
 
-Files are Julia-native, versioned, little-endian, and written to a temporary file that is
-fsynced and atomically renamed. They are **not** byte-compatible with the Rust `.tv` format
-(see [Validation](validation.md)); `.tv` / `.tvim` are used only by convention.
+Files are Julia-native, versioned (v2), little-endian, and carry a **CRC-32C** checksum
+footer that is verified on load. Writes go to an exclusive temporary file in the destination
+directory, fsynced and atomically renamed, and the directory is fsynced afterwards, so a
+completed write survives a crash. Truncated or corrupted files raise `InvalidFileFormat`.
+They are **not** byte-compatible with the Rust `.tv` format (see [Validation](validation.md));
+`.tv` / `.tvim` are used only by convention.
 
 ```julia
 write_index("index.tv", index);    loaded = load_index("index.tv")
