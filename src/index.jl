@@ -88,14 +88,9 @@ end
 
 """Scan for the first non-finite or over-magnitude coordinate."""
 function _validate_input(X::AbstractMatrix{Float32}, dim::Int)
-    @inbounds for i in 1:size(X, 1)
-        for d in 1:dim
-            x = X[i, d]
-            if !(abs(x) < MAX_INPUT_MAGNITUDE)
-                throw(InvalidInputValue(i, d, x))
-            end
-        end
-    end
+    bad = _first_invalid_matrix(X, dim)
+    bad === nothing ||
+        throw(InvalidInputValue(bad.vector_index, bad.coord_index, bad.value))
     nothing
 end
 

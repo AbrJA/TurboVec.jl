@@ -49,6 +49,29 @@ function _calibration_error(shift::AbstractVector{Float32},
     nothing
 end
 
+# First invalid coordinate of an `n × dim` matrix in **row-major**
+# precedence (smallest row, then smallest column), scanning column-first
+# so the inner loop walks contiguous memory. Equivalent to a row-major
+# scan, without the cache-hostile `n`-element stride.
+function _first_invalid_matrix(X::AbstractMatrix{Float32}, dim::Int)
+    n = size(X, 1)
+    best_i = typemax(Int)
+    best_d = 0
+    best_x = 0.0f0
+    @inbounds for d in 1:dim
+        for i in 1:min(n, best_i - 1)
+            x = X[i, d]
+            if !(abs(x) < MAX_INPUT_MAGNITUDE)
+                best_i = i
+                best_d = d
+                best_x = x
+                break
+            end
+        end
+    end
+    best_d == 0 ? nothing : (vector_index = best_i, coord_index = best_d, value = best_x)
+end
+
 """
     first_invalid_coord(values, dim; max_magnitude = 1e16)
         -> Union{Nothing, NamedTuple}

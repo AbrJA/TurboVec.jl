@@ -107,18 +107,25 @@ function compute_tqplus_calibration(rotated::AbstractMatrix{Float32}, n::Int,
 
     shift = zeros(Float32, dim)
     scale = ones(Float32, dim)
-    Threads.@threads for d in 1:dim
-        keys = Vector{UInt32}(undef, n)
-        @inbounds for i in 1:n
-            keys[i] = f32_sort_key(rotated[d, i])
-        end
-        qe_lo = f32_from_sort_key(partialsort!(keys, lo_idx + 1))
-        qe_hi = f32_from_sort_key(partialsort!(keys, hi_idx + 1))
-        span = qe_hi - qe_lo
-        if span > 1.0f-6
-            sc = qc_span / span
-            shift[d] = qc_lo / sc - qe_lo
-            scale[d] = sc
+    # One sort buffer per worker task, reused across the coordinates in
+    # that task's range: the old code allocated an n-element buffer per
+    # coordinate, which made `calibrate!` allocation-bound on the GC.
+    @sync for (lo, hi) in _parallel_ranges(dim)
+        Threads.@spawn begin
+            keys = Vector{UInt32}(undef, n)
+            for d in lo:hi
+                @inbounds for i in 1:n
+                    keys[i] = f32_sort_key(rotated[d, i])
+                end
+                qe_lo = f32_from_sort_key(partialsort!(keys, lo_idx + 1))
+                qe_hi = f32_from_sort_key(partialsort!(keys, hi_idx + 1))
+                span = qe_hi - qe_lo
+                if span > 1.0f-6
+                    sc = qc_span / span
+                    shift[d] = qc_lo / sc - qe_lo
+                    scale[d] = sc
+                end
+            end
         end
     end
     (shift, scale)

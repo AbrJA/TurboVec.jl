@@ -94,6 +94,36 @@
         @test_throws InvalidQueryValue search(idx, fill(NaN32, 1, dim), 1)
     end
 
+    @testset "validation reports the first row-major coordinate" begin
+        idx = TurboQuantIndex(16, 4)
+        # (5,1) and (2,3) are invalid: (2,3) comes first in row-major order.
+        Y = ones(Float32, 6, 16)
+        Y[5, 1] = NaN32
+        Y[2, 3] = Inf32
+        err = try
+            add!(idx, Y)
+        catch e
+            e
+        end
+        @test err isa InvalidInputValue
+        @test err.vector_index == 2
+        @test err.coord_index == 3
+        @test err.value == Inf32
+
+        # Same rule for queries, including a last-column case.
+        Q = ones(Float32, 4, 16)
+        Q[3, 2] = NaN32
+        Q[1, 16] = 1.0f17
+        errq = try
+            search(idx, Q, 1)
+        catch e
+            e
+        end
+        @test errq isa InvalidQueryValue
+        @test errq.query_index == 1
+        @test errq.coord_index == 16
+    end
+
     @testset "calibration" begin
         rng = MersenneTwister(4)
         dim, n = 48, 300

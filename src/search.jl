@@ -403,14 +403,9 @@ function search(index::TurboQuantIndex, queries::AbstractMatrix{Float32}, k::Int
         return (Matrix{Float32}(undef, nq, 0), Matrix{Int}(undef, nq, 0))
     end
     size(queries, 2) == dim || throw(QueryBufferNotMultipleOfDim(size(queries, 2), dim))
-    @inbounds for i in 1:nq
-        for d in 1:dim
-            x = queries[i, d]
-            if !(abs(x) < MAX_INPUT_MAGNITUDE)
-                throw(InvalidQueryValue(i, d, x))
-            end
-        end
-    end
+    bad = _first_invalid_matrix(queries, dim)
+    bad === nothing ||
+        throw(InvalidQueryValue(bad.vector_index, bad.coord_index, bad.value))
     if index.n == 0
         mask !== nothing && length(mask) != 0 &&
             throw(MaskLengthMismatch(0, length(mask)))
