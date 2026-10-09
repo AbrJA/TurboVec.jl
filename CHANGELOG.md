@@ -22,6 +22,11 @@ breaking change.
   bit-exactness contracts (guide).
 - Opt-in JET and JuliaFormatter test targets
   (`Pkg.test(; test_args = ["jet"])` / `["format"]`).
+- `single_query_parallelizes(n_vectors)`: the rule behind the
+  block-parallel single-query path, exported for tuning and bindings.
+- `dev/README.md` documenting the Rust cross-validation corpus, the
+  Julia/Rust benchmark harnesses, and the profiling experiments; a
+  `workflow_dispatch`-only benchmark CI job.
 
 ### Changed
 - **Breaking:** the persistence format is now v2 (`TVECJL\2\0` with a CRC-32C
@@ -49,6 +54,12 @@ breaking change.
 - CI adds linux-aarch64, the frozen Rust cross-validation, a
   bounds/depwarn hardening run, JET static analysis, and a formatting
   check; `src`/`test` are now pinned to `.JuliaFormatter.toml`.
+- Internal: the encode and scan kernels take `EncodeCtx`/`ScanCtx`
+  context structs instead of 10–12 positional arguments (no arithmetic
+  or API change).
+- The CPU feature probe falls back to the scalar path on any probe
+  failure instead of risking package load; docs/Project.toml gained a
+  Julia compat entry.
 
 ### Fixed
 - Truncated files now raise `InvalidFileFormat` instead of a bare `EOFError`.

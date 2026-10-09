@@ -42,7 +42,17 @@ Verified with the full `Pkg.test()` suite, the `--check-bounds=yes
 | P0-12(3) SemVer policy in the guide (registration still yours) | ✅ docs done | `72b306b` |
 
 The CI jobs added in Phase B can only be verified on your next push
-(they never run locally). Phases C–D remain as described in §4.
+(they never run locally).
+
+**Quick-wins pass (P1-6, P1-12, P1-17, P2-3, P2-7) has landed:**
+
+| Item | Status | Commit |
+| --- | --- | --- |
+| P1-6 `single_query_parallelizes`, P1-12 `EncodeCtx`/`ScanCtx` | ✅ done | `c7a9123` |
+| P2-3 CPUID probe hardened (no public replacement exists) | ✅ done | `87474c9` |
+| P1-17 harness docs + manual bench job, P2-7 docs compat | ✅ done | `a25fd4e` |
+
+Phases C–D remain as described in §4.
 
 ---
 
@@ -323,15 +333,15 @@ optional/manual benchmark CI job; do not gate merges on noisy ±20% benchmarks.
 - **P2-2. Deduplicate the three LLVM IR kernels** (`src/simd.jl`) by generating the IR
   strings from a shared template (they differ only in blocks-per-pass and table count).
   The existing parity tests make this safe, but it is cosmetic — the strings are stable.
-- **P2-3. Replace the semi-internal `Base.BinaryPlatforms.CPUID`** (`src/simd.jl:81-90`)
-  with a pinned helper (or `Sys.CPU_NAME` parse) since it is not a public Base API.
+- **P2-3. ✅ CPU feature probe hardened** (`src/simd.jl`): no public feature-detection API
+  exists in Base, so the probe now falls back to the scalar path on any failure instead of
+  being replaced (commit `87474c9`).
 - **P2-4. Chunked `calibrate!` rotation** (`src/index.jl:222` materializes `dim × nr`) for
   very large calibration samples; the recommended 1000 rows are fine today.
 - **P2-5. Warning behavior for fast writes** (see P1-2) via `@warn` — no hook machinery.
 - **P2-6. `@assume_effects`/`@constprop` annotations** on the scan kernels after a JET pass
   (P1-16) finds any dynamic dispatch.
-- **P2-7. docs/Project.toml** lacks a `version` and `julia` compat entry — add for
-  Documenter hygiene.
+- **P2-7. ✅ docs/Project.toml** gained a `julia = "1.13"` compat entry (commit `a25fd4e`).
 
 ---
 
