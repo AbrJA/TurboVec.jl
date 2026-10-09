@@ -8,3 +8,6 @@ Manifest.toml
 # TurboVec dev harnesses
 /dev/logs/
 /dev/*/target/
+
+# Local agent notes (not published)
+AGENTS.md
