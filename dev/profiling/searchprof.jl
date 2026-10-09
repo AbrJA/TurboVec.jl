@@ -13,9 +13,11 @@ function main()
         TV._prepare_lut(idx, q, qb, sc)
     end
     h = TV.TopK(64)
+    out = Vector{Float32}(undef, 64)
     tscan = @elapsed for _ in 1:5
         h2 = TV.TopK(64)
-        TV._scan_blocks!(h2, prep, idx.codes, idx.scales, idx.n, 0, idx.n_blocks, nothing)
+        TV._scan_blocks!(h2, prep, idx.codes, idx.scales, idx.n, 0, idx.n_blocks,
+                         nothing, out)
     end
     tfull = @elapsed for _ in 1:5
         search(idx, view(X, 1:1, :), 64)

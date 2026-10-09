@@ -62,6 +62,9 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
     bias = 0.0f0
 
     c4 = (centroids[1], centroids[2], centroids[3], centroids[4])
+    # Scratch reuse: every entry is overwritten before it is read, so one
+    # matrix serves every byte group (the old code allocated two per group).
+    prods = Matrix{Float32}(undef, cpn, 16)
     for g in 0:(ng - 1)
         ds = g * cpb
         local lo_min::Float32, lo_max::Float32, hi_min::Float32, hi_max::Float32
@@ -70,8 +73,7 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
             hi_min, hi_max = _sub2!(fv, 17, g + 1, q_rot_row, ds + 3, c4)
         else
             # first sub-table: coords ds .. ds+cpn-1
-            prods = Matrix{Float32}(undef, cpn, 16)
-            for c in 0:(cpn - 1)
+            @inbounds for c in 0:(cpn - 1)
                 qq = q_rot_row[ds + c + 1]
                 for code in 0:(1 << bits)-1
                     prods[c + 1, code + 1] = qq * centroids[code + 1]
@@ -79,7 +81,7 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
             end
             lo_min = typemax(Float32)
             lo_max = -typemax(Float32)
-            for nib in 0:15
+            @inbounds for nib in 0:15
                 s = 0.0f0
                 for c in 0:(cpn - 1)
                     sh = (cpn - 1 - c) * bits
@@ -91,7 +93,7 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
                 s > lo_max && (lo_max = s)
             end
             # second sub-table: coords ds+cpn ..
-            for c in 0:(cpn - 1)
+            @inbounds for c in 0:(cpn - 1)
                 qq = q_rot_row[ds + cpn + c + 1]
                 for code in 0:(1 << bits)-1
                     prods[c + 1, code + 1] = qq * centroids[code + 1]
@@ -99,7 +101,7 @@ function build_query_lut(q_rot_row::AbstractVector{Float32},
             end
             hi_min = typemax(Float32)
             hi_max = -typemax(Float32)
-            for nib in 0:15
+            @inbounds for nib in 0:15
                 s = 0.0f0
                 for c in 0:(cpn - 1)
                     sh = (cpn - 1 - c) * bits

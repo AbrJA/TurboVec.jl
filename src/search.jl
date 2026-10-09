@@ -90,8 +90,8 @@ end
 function _scan_blocks_avx2!(topk::TopK, table::Vector{UInt8},
                             codes::Vector{UInt8}, scales::Vector{Float32},
                             ng::Int, n::Int, bias::Float32, scale::Float32,
-                            bfirst::Int, blast::Int, mask::M) where {M}
-    out = Vector{Float32}(undef, BLOCK)
+                            bfirst::Int, blast::Int, mask::M,
+                            out::Vector{Float32}) where {M}
     GC.@preserve codes table out begin
         pc = pointer(codes)
         pl = pointer(table)
@@ -141,8 +141,8 @@ end
 function _scan_blocks_avx512!(topk::TopK, table::Vector{UInt8},
                               codes::Vector{UInt8}, scales::Vector{Float32},
                               ng::Int, n::Int, bias::Float32, scale::Float32,
-                              bfirst::Int, blast::Int, mask::M) where {M}
-    out = Vector{Float32}(undef, 64)
+                              bfirst::Int, blast::Int, mask::M,
+                              out::Vector{Float32}) where {M}
     stride = ng * BLOCK
     GC.@preserve codes table out begin
         pc = pointer(codes)
@@ -176,13 +176,14 @@ end
 
 @inline function _scan_blocks!(topk::TopK, prep::PreparedLut,
                                codes::Vector{UInt8}, scales::Vector{Float32},
-                               n::Int, bfirst::Int, blast::Int, mask::M) where {M}
+                               n::Int, bfirst::Int, blast::Int, mask::M,
+                               out::Vector{Float32}) where {M}
     if HAS_AVX512BW
         _scan_blocks_avx512!(topk, prep.table, codes, scales, prep.ng, n,
-                             prep.bias, prep.scale, bfirst, blast, mask)
+                             prep.bias, prep.scale, bfirst, blast, mask, out)
     elseif HAS_AVX2
         _scan_blocks_avx2!(topk, prep.table, codes, scales, prep.ng, n,
-                           prep.bias, prep.scale, bfirst, blast, mask)
+                           prep.bias, prep.scale, bfirst, blast, mask, out)
     else
         acc = Vector{Int32}(undef, BLOCK)
         _scan_blocks_scalar!(topk, prep.comb, codes, scales, prep.ng, n,
@@ -216,10 +217,16 @@ function _prepare_lut(index::TurboQuantIndex, qrow::AbstractVector{Float32},
         bias_corr = Float32(bc)
     end
     lut = build_query_lut(q, index.centroids, bits, dim)
-    # Combined 256-entry table per byte group: the exact integer sum of
-    # the two nibble entries the AVX2 kernel looks up separately.
+    # The 256-entry combined table per byte group is the scalar kernel's
+    # input only; AVX2/AVX-512 hosts never read it, so they skip building
+    # it entirely (at dim 768 / 4-bit that is ~100 KB per query).
+    comb = (HAS_AVX512BW || HAS_AVX2) ? UInt8[] : _build_comb(lut.table, ng)
+    PreparedLut(lut.table, comb, lut.scale, lut.bias + bias_corr, ng)
+end
+
+"""Build the 256-entry combined table per byte group (scalar-kernel input)."""
+function _build_comb(table::Vector{UInt8}, ng::Int)
     comb = Vector{UInt8}(undef, 256 * ng)
-    table = lut.table
     @inbounds for g in 0:(ng - 1)
         lb = g * 32
         cb = g * 256
@@ -228,7 +235,7 @@ function _prepare_lut(index::TurboQuantIndex, qrow::AbstractVector{Float32},
                                   table[lb + 16 + (byte & 0x0f) + 1]
         end
     end
-    PreparedLut(table, comb, lut.scale, lut.bias + bias_corr, ng)
+    comb
 end
 
 # ── per-query search ───────────────────────────────────────────────────────
@@ -253,8 +260,9 @@ function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::
             b0 >= b1 && continue
             r = results[t]
             push!(tasks, Threads.@spawn begin
+                out = Vector{Float32}(undef, 64)
                 _scan_blocks!(r, prep, index.codes, index.scales, index.n,
-                              b0, b1, mask)
+                              b0, b1, mask, out)
             end)
         end
         foreach(wait, tasks)
@@ -262,8 +270,9 @@ function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::
             results[t].size > 0 && merge_topk!(topk, results[t])
         end
     else
+        out = Vector{Float32}(undef, 64)
         _scan_blocks!(topk, prep, index.codes, index.scales, index.n,
-                      0, index.n_blocks, mask)
+                      0, index.n_blocks, mask, out)
     end
     sorted_results(topk)
 end
@@ -284,9 +293,8 @@ end
 # to two independent searches.
 function _scan_two_avx512!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
                            prepB::PreparedLut, codes::Vector{UInt8},
-                           scales::Vector{Float32}, n::Int, n_blocks::Int, mask::M) where {M}
-    outA = Vector{Float32}(undef, 64)
-    outB = Vector{Float32}(undef, 64)
+                           scales::Vector{Float32}, n::Int, n_blocks::Int, mask::M,
+                           outA::Vector{Float32}, outB::Vector{Float32}) where {M}
     ng = prepA.ng
     stride = ng * BLOCK
     GC.@preserve codes outA outB begin
@@ -338,8 +346,10 @@ function _search_two!(index::TurboQuantIndex, qrowA::AbstractVector{Float32},
                          Vector{Float32}(undef, dim))
     topkA = TopK(k)
     topkB = TopK(k)
+    outA = Vector{Float32}(undef, 64)
+    outB = Vector{Float32}(undef, 64)
     _scan_two_avx512!(topkA, topkB, prepA, prepB, index.codes, index.scales,
-                      index.n, index.n_blocks, mask)
+                      index.n, index.n_blocks, mask, outA, outB)
     (sorted_results(topkA), sorted_results(topkB))
 end
 
