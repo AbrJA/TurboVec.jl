@@ -89,5 +89,8 @@
         @test MIN_INPUT_NORM == 1.0f-10
         @test MIN_CALIBRATION_ROWS == 2
         @test RECOMMENDED_CALIBRATION_ROWS == 1000
+        @test !single_query_parallelizes(0)
+        @test !single_query_parallelizes(1023 * 32)
+        @test single_query_parallelizes(1023 * 32 + 1)
     end
 end

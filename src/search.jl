@@ -16,6 +16,21 @@ struct PreparedLut
     ng::Int
 end
 
+"""Index-level scan state shared by every kernel: the blocked codes, the
+per-vector scales, the vector count and the byte-group count. Built once
+per search; per-query tables and constants live in `PreparedLut`."""
+struct ScanCtx
+    codes::Vector{UInt8}
+    scales::Vector{Float32}
+    n::Int
+    ng::Int
+end
+
+function ScanCtx(index::TurboQuantIndex)
+    ScanCtx(index.codes, index.scales, index.n,
+            n_byte_groups(index.dim, index.bit_width))
+end
+
 @inline function _mask_allows(mask::Vector{UInt64}, slot0::Int)
     @inbounds (mask[(slot0 >> 6) + 1] >> (slot0 & 63)) & 0x1 != 0x0
 end
@@ -38,11 +53,16 @@ end
 
 # ── scalar kernel ──────────────────────────────────────────────────────────
 
-@inline function _scan_blocks_scalar!(topk::TopK, comb::Vector{UInt8},
-                                      codes::Vector{UInt8}, scales::Vector{Float32},
-                                      ng::Int, n::Int, bias::Float32, scale::Float32,
+@inline function _scan_blocks_scalar!(topk::TopK, prep::PreparedLut, ctx::ScanCtx,
                                       bfirst::Int, blast::Int, acc::Vector{Int32},
                                       mask::M) where {M}
+    comb = prep.comb
+    codes = ctx.codes
+    scales = ctx.scales
+    ng = ctx.ng
+    n = ctx.n
+    bias = prep.bias
+    scale = prep.scale
     @inbounds for b in bfirst:(blast - 1)
         base_vec = b * BLOCK
         if M !== Nothing
@@ -87,11 +107,16 @@ end
 
 # ── AVX2 kernel ────────────────────────────────────────────────────────────
 
-function _scan_blocks_avx2!(topk::TopK, table::Vector{UInt8},
-                            codes::Vector{UInt8}, scales::Vector{Float32},
-                            ng::Int, n::Int, bias::Float32, scale::Float32,
+function _scan_blocks_avx2!(topk::TopK, prep::PreparedLut, ctx::ScanCtx,
                             bfirst::Int, blast::Int, mask::M,
                             out::Vector{Float32}) where {M}
+    table = prep.table
+    codes = ctx.codes
+    scales = ctx.scales
+    ng = ctx.ng
+    n = ctx.n
+    bias = prep.bias
+    scale = prep.scale
     GC.@preserve codes table out begin
         pc = pointer(codes)
         pl = pointer(table)
@@ -123,8 +148,9 @@ function _scan_blocks_avx2!(topk::TopK, table::Vector{UInt8},
 end
 
 @inline function _insert_lanes!(topk::TopK, out::Vector{Float32}, off::Int,
-                                base_vec::Int, n::Int, scales::Vector{Float32},
-                                mask::M) where {M}
+                                base_vec::Int, ctx::ScanCtx, mask::M) where {M}
+    n = ctx.n
+    scales = ctx.scales
     @inbounds for l in 1:BLOCK
         vi = base_vec + l
         vi > n && break
@@ -138,11 +164,16 @@ end
 
 # Two 32-vector blocks per pass through the AVX-512 pair kernel, falling
 # back to the single-block AVX2 kernel for a leftover tail block.
-function _scan_blocks_avx512!(topk::TopK, table::Vector{UInt8},
-                              codes::Vector{UInt8}, scales::Vector{Float32},
-                              ng::Int, n::Int, bias::Float32, scale::Float32,
+function _scan_blocks_avx512!(topk::TopK, prep::PreparedLut, ctx::ScanCtx,
                               bfirst::Int, blast::Int, mask::M,
                               out::Vector{Float32}) where {M}
+    table = prep.table
+    codes = ctx.codes
+    scales = ctx.scales
+    ng = ctx.ng
+    n = ctx.n
+    bias = prep.bias
+    scale = prep.scale
     stride = ng * BLOCK
     GC.@preserve codes table out begin
         pc = pointer(codes)
@@ -160,13 +191,12 @@ function _scan_blocks_avx512!(topk::TopK, table::Vector{UInt8},
                 end
                 scan_pair_avx512!(pc + b * stride, pc + (b + 1) * stride, pl,
                                   ng, scale, bias, po)
-                _insert_lanes!(topk, out, 1, base_vec, n, scales, mask)
-                _insert_lanes!(topk, out, BLOCK + 1, base_vec + BLOCK, n,
-                               scales, mask)
+                _insert_lanes!(topk, out, 1, base_vec, ctx, mask)
+                _insert_lanes!(topk, out, BLOCK + 1, base_vec + BLOCK, ctx, mask)
                 b += 2
             else
                 scan_block_avx2!(pc + b * stride, pl, ng, scale, bias, po)
-                _insert_lanes!(topk, out, 1, base_vec, n, scales, mask)
+                _insert_lanes!(topk, out, 1, base_vec, ctx, mask)
                 b += 1
             end
         end
@@ -174,20 +204,16 @@ function _scan_blocks_avx512!(topk::TopK, table::Vector{UInt8},
     nothing
 end
 
-@inline function _scan_blocks!(topk::TopK, prep::PreparedLut,
-                               codes::Vector{UInt8}, scales::Vector{Float32},
-                               n::Int, bfirst::Int, blast::Int, mask::M,
+@inline function _scan_blocks!(topk::TopK, prep::PreparedLut, ctx::ScanCtx,
+                               bfirst::Int, blast::Int, mask::M,
                                out::Vector{Float32}) where {M}
     if HAS_AVX512BW
-        _scan_blocks_avx512!(topk, prep.table, codes, scales, prep.ng, n,
-                             prep.bias, prep.scale, bfirst, blast, mask, out)
+        _scan_blocks_avx512!(topk, prep, ctx, bfirst, blast, mask, out)
     elseif HAS_AVX2
-        _scan_blocks_avx2!(topk, prep.table, codes, scales, prep.ng, n,
-                           prep.bias, prep.scale, bfirst, blast, mask, out)
+        _scan_blocks_avx2!(topk, prep, ctx, bfirst, blast, mask, out)
     else
         acc = Vector{Int32}(undef, BLOCK)
-        _scan_blocks_scalar!(topk, prep.comb, codes, scales, prep.ng, n,
-                             prep.bias, prep.scale, bfirst, blast, acc, mask)
+        _scan_blocks_scalar!(topk, prep, ctx, bfirst, blast, acc, mask)
     end
     nothing
 end
@@ -240,6 +266,22 @@ end
 
 # ── per-query search ───────────────────────────────────────────────────────
 
+"""Minimum number of 32-vector blocks at which a single query splits its scan."""
+const SINGLE_QUERY_PARALLEL_MIN_BLOCKS = 1024
+
+"""
+    single_query_parallelizes(n_vectors) -> Bool
+
+Whether a single-query search over `n_vectors` vectors splits its block
+range across worker tasks: true once the index spans at least
+`SINGLE_QUERY_PARALLEL_MIN_BLOCKS` 32-vector blocks (the first such
+count is 32 737 vectors, since partial blocks count). Batch searches
+parallelize per query pair instead and ignore this rule.
+"""
+function single_query_parallelizes(n_vectors::Integer)
+    n_blocks(Int(n_vectors)) >= SINGLE_QUERY_PARALLEL_MIN_BLOCKS
+end
+
 function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::Int,
                       block_parallel::Bool = true,
                       mask::Union{Nothing,Vector{UInt64}} = nothing)
@@ -247,8 +289,9 @@ function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::
     q = Vector{Float32}(undef, dim)
     scratch = Vector{Float32}(undef, dim)
     prep = _prepare_lut(index, qrow, q, scratch)
+    ctx = ScanCtx(index)
     topk = TopK(k)
-    if block_parallel && Threads.nthreads() > 1 && index.n_blocks >= 1024
+    if block_parallel && Threads.nthreads() > 1 && single_query_parallelizes(index.n)
         nt = min(Threads.nthreads(), index.n_blocks)
         stride = cld(index.n_blocks, nt)
         results = Vector{TopK}(undef, nt)
@@ -262,8 +305,7 @@ function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::
             push!(tasks,
                   Threads.@spawn begin
                       out = Vector{Float32}(undef, 64)
-                      _scan_blocks!(r, prep, index.codes, index.scales, index.n,
-                                    b0, b1, mask, out)
+                      _scan_blocks!(r, prep, ctx, b0, b1, mask, out)
                   end)
         end
         foreach(wait, tasks)
@@ -272,8 +314,7 @@ function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::
         end
     else
         out = Vector{Float32}(undef, 64)
-        _scan_blocks!(topk, prep, index.codes, index.scales, index.n,
-                      0, index.n_blocks, mask, out)
+        _scan_blocks!(topk, prep, ctx, 0, index.n_blocks, mask, out)
     end
     sorted_results(topk)
 end
@@ -293,9 +334,12 @@ end
 # and reads the codes once. Same integer sums, so results are identical
 # to two independent searches.
 function _scan_two_avx512!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
-                           prepB::PreparedLut, codes::Vector{UInt8},
-                           scales::Vector{Float32}, n::Int, n_blocks::Int, mask::M,
-                           outA::Vector{Float32}, outB::Vector{Float32}) where {M}
+                           prepB::PreparedLut, ctx::ScanCtx, n_blocks::Int,
+                           mask::M, outA::Vector{Float32},
+                           outB::Vector{Float32}) where {M}
+    codes = ctx.codes
+    scales = ctx.scales
+    n = ctx.n
     ng = prepA.ng
     stride = ng * BLOCK
     GC.@preserve codes outA outB begin
@@ -317,20 +361,18 @@ function _scan_two_avx512!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
                 scan_pair2_avx512!(pc + b * stride, pc + (b + 1) * stride,
                                    pla, plb, ng, prepA.scale, prepA.bias,
                                    prepB.scale, prepB.bias, poa, pob)
-                _insert_lanes!(topkA, outA, 1, base_vec, n, scales, mask)
-                _insert_lanes!(topkA, outA, BLOCK + 1, base_vec + BLOCK, n,
-                               scales, mask)
-                _insert_lanes!(topkB, outB, 1, base_vec, n, scales, mask)
-                _insert_lanes!(topkB, outB, BLOCK + 1, base_vec + BLOCK, n,
-                               scales, mask)
+                _insert_lanes!(topkA, outA, 1, base_vec, ctx, mask)
+                _insert_lanes!(topkA, outA, BLOCK + 1, base_vec + BLOCK, ctx, mask)
+                _insert_lanes!(topkB, outB, 1, base_vec, ctx, mask)
+                _insert_lanes!(topkB, outB, BLOCK + 1, base_vec + BLOCK, ctx, mask)
                 b += 2
             else
                 scan_block_avx2!(pc + b * stride, pla, ng, prepA.scale,
                                  prepA.bias, poa)
-                _insert_lanes!(topkA, outA, 1, base_vec, n, scales, mask)
+                _insert_lanes!(topkA, outA, 1, base_vec, ctx, mask)
                 scan_block_avx2!(pc + b * stride, plb, ng, prepB.scale,
                                  prepB.bias, pob)
-                _insert_lanes!(topkB, outB, 1, base_vec, n, scales, mask)
+                _insert_lanes!(topkB, outB, 1, base_vec, ctx, mask)
                 b += 1
             end
         end
@@ -345,16 +387,17 @@ function _search_two!(index::TurboQuantIndex, qrowA::AbstractVector{Float32},
                          Vector{Float32}(undef, dim))
     prepB = _prepare_lut(index, qrowB, Vector{Float32}(undef, dim),
                          Vector{Float32}(undef, dim))
+    ctx = ScanCtx(index)
     topkA = TopK(k)
     topkB = TopK(k)
     outA = Vector{Float32}(undef, 64)
     outB = Vector{Float32}(undef, 64)
     if HAS_AVX512BW
-        _scan_two_avx512!(topkA, topkB, prepA, prepB, index.codes, index.scales,
-                          index.n, index.n_blocks, mask, outA, outB)
+        _scan_two_avx512!(topkA, topkB, prepA, prepB, ctx, index.n_blocks,
+                          mask, outA, outB)
     else
-        _scan_two_avx2!(topkA, topkB, prepA, prepB, index.codes, index.scales,
-                        index.n, index.n_blocks, mask, outA, outB)
+        _scan_two_avx2!(topkA, topkB, prepA, prepB, ctx, index.n_blocks,
+                        mask, outA, outB)
     end
     (sorted_results(topkA), sorted_results(topkB))
 end
@@ -362,9 +405,11 @@ end
 # AVX2 twin of the two-query pass: one 32-code block per iteration is
 # scored against both queries, so the codes are read once per pair.
 function _scan_two_avx2!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
-                         prepB::PreparedLut, codes::Vector{UInt8},
-                         scales::Vector{Float32}, n::Int, n_blocks::Int, mask::M,
-                         outA::Vector{Float32}, outB::Vector{Float32}) where {M}
+                         prepB::PreparedLut, ctx::ScanCtx, n_blocks::Int,
+                         mask::M, outA::Vector{Float32},
+                         outB::Vector{Float32}) where {M}
+    codes = ctx.codes
+    scales = ctx.scales
     ng = prepA.ng
     stride = ng * BLOCK
     GC.@preserve codes outA outB begin
@@ -380,8 +425,8 @@ function _scan_two_avx2!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
             end
             scan_pair2_avx2!(pc + b * stride, pla, plb, ng, prepA.scale,
                              prepA.bias, prepB.scale, prepB.bias, poa, pob)
-            _insert_lanes!(topkA, outA, 1, base_vec, n, scales, mask)
-            _insert_lanes!(topkB, outB, 1, base_vec, n, scales, mask)
+            _insert_lanes!(topkA, outA, 1, base_vec, ctx, mask)
+            _insert_lanes!(topkB, outB, 1, base_vec, ctx, mask)
         end
     end
     nothing

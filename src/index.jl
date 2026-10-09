@@ -107,6 +107,23 @@ function _commit_geometry!(index::TurboQuantIndex, dim::Int)
     nothing
 end
 
+"""Encoding context under the index's committed calibration (identity if none)."""
+function EncodeCtx(index::TurboQuantIndex)
+    dim = index.dim
+    calibrated = !isempty(index.tqplus_shift)
+    shift = calibrated ? index.tqplus_shift : zeros(Float32, dim)
+    scale_tq = calibrated ? index.tqplus_scale : ones(Float32, dim)
+    EncodeCtx(shift, scale_tq, 1.0f0 ./ scale_tq, index.centroids,
+              index.boundaries, index.bit_width, dim)
+end
+
+"""Encoding context under an explicit `(shift, scale)` pair."""
+function EncodeCtx(index::TurboQuantIndex, shift::Vector{Float32},
+                   scale_tq::Vector{Float32})
+    EncodeCtx(shift, scale_tq, 1.0f0 ./ scale_tq, index.centroids,
+              index.boundaries, index.bit_width, index.dim)
+end
+
 """
     add!(index, vectors)
 
@@ -130,12 +147,6 @@ function add!(index::TurboQuantIndex, X::AbstractMatrix{Float32})
     _grow_codes!(index, old_n + n)
 
     calibrated = !isempty(index.tqplus_shift)
-    shift, scale_tq = if calibrated
-        index.tqplus_shift, index.tqplus_scale
-    else
-        zeros(Float32, dim), ones(Float32, dim)
-    end
-    inv_scale_tq = 1.0f0 ./ scale_tq
     resize!(index.scales, old_n + n)
 
     # Rotate and quantize per row so the dim x n rotated matrix never
@@ -143,22 +154,20 @@ function add!(index::TurboQuantIndex, X::AbstractMatrix{Float32})
     # rotated row straight into the quantizer. Same per-row op order, so
     # the codes and scales are bit-identical to the two-pass version.
     rot = index.rotation::Rotation
-    bits = index.bit_width
+    ctx = EncodeCtx(index)
     if calibrated
-        _encode_rows!(index, X, old_n, n, dim, rot, shift, scale_tq,
-                      inv_scale_tq, bits, Val(true))
+        _encode_rows!(index, X, old_n, n, rot, ctx, Val(true))
     else
-        _encode_rows!(index, X, old_n, n, dim, rot, shift, scale_tq,
-                      inv_scale_tq, bits, Val(false))
+        _encode_rows!(index, X, old_n, n, rot, ctx, Val(false))
     end
     index.n = old_n + n
     index
 end
 
 function _encode_rows!(index::TurboQuantIndex, X::AbstractMatrix{Float32},
-                       old_n::Int, n::Int, dim::Int, rot::Rotation,
-                       shift::Vector{Float32}, scale_tq::Vector{Float32},
-                       inv_scale_tq::Vector{Float32}, bits::Int, ::Val{CAL}) where {CAL}
+                       old_n::Int, n::Int, rot::Rotation, ctx::EncodeCtx,
+                       ::Val{CAL}) where {CAL}
+    dim = ctx.dim
     @sync for (lo, hi) in _parallel_ranges(n)
         Threads.@spawn begin
             src = Vector{Float32}(undef, dim)
@@ -171,12 +180,9 @@ function _encode_rows!(index::TurboQuantIndex, X::AbstractMatrix{Float32},
                 nrm = simd_norm(src, dim)
                 inv = nrm > MIN_INPUT_NORM ? 1.0f0 / nrm : 0.0f0
                 apply_scaled_into!(rot, src, inv, dst, scratch)
-                index.scales[old_n + i] = quantize_scale_pack!(index.codes, old_n + i - 1,
-                                                               dst, shift, scale_tq,
-                                                               inv_scale_tq,
-                                                               index.centroids,
-                                                               index.boundaries, bits,
-                                                               dim, nrm, Val(CAL))
+                index.scales[old_n + i] = quantize_scale_pack!(index.codes,
+                                                               old_n + i - 1, dst,
+                                                               ctx, nrm, Val(CAL))
             end
         end
     end
@@ -251,7 +257,7 @@ function _reencode_stored_rows!(index::TurboQuantIndex, new_shift::Vector{Float3
     calibrated_old = !isempty(index.tqplus_shift)
     old_shift = calibrated_old ? index.tqplus_shift : nothing
     old_inv = calibrated_old ? (1.0f0 ./ index.tqplus_scale) : nothing
-    inv_new = 1.0f0 ./ new_scale
+    ctx = EncodeCtx(index, new_shift, new_scale)
     @sync for (lo, hi) in _parallel_ranges(n)
         Threads.@spawn begin
             codes = Vector{UInt8}(undef, dim)
@@ -270,9 +276,7 @@ function _reencode_stored_rows!(index::TurboQuantIndex, new_shift::Vector{Float3
                 end
                 norm = Float32(Float64(index.scales[i]) * sumsq)
                 index.scales[i] = quantize_scale_pack!(index.codes, i - 1, recon,
-                                                       new_shift, new_scale, inv_new,
-                                                       index.centroids, index.boundaries,
-                                                       bits, dim, norm, Val(true))
+                                                       ctx, norm, Val(true))
             end
         end
     end

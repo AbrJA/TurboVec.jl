@@ -203,24 +203,42 @@ function rotate_batch!(rotated::AbstractMatrix{Float32}, norms::Vector{Float32},
 end
 
 """
-    quantize_scale_pack!(blocked, lane, rot_orig, shift, scale_tq,
-                         inv_scale_tq, centroids, boundaries, bits, dim,
-                         norm) -> Float32
+    EncodeCtx
 
-Quantize one rotated unit row under the calibration `(shift, scale_tq)`,
-write its code bytes into the blocked layout at `lane`, and return the
-stored length-renormalization scale. An uncalibrated index passes the
-identity pair (`shift == 0`, `scale_tq == 1`), which is arithmetically
-exact.
+Invariant encoding parameters shared by the per-row quantizer: the TQ+
+calibration pair (identity when uncalibrated), its reciprocal, the
+codebook, and the geometry. Built once per `add!`/`calibrate!` from the
+index; see the constructors in `index.jl`.
+"""
+struct EncodeCtx
+    shift::Vector{Float32}
+    scale_tq::Vector{Float32}
+    inv_scale_tq::Vector{Float32}
+    centroids::Vector{Float32}
+    boundaries::Vector{Float32}
+    bits::Int
+    dim::Int
+end
+
+"""
+    quantize_scale_pack!(blocked, lane, rot_orig, ctx, norm) -> Float32
+
+Quantize one rotated unit row under the calibration in `ctx`, write its
+code bytes into the blocked layout at `lane`, and return the stored
+length-renormalization scale. An uncalibrated index carries the identity
+pair (`shift == 0`, `scale_tq == 1`), which is arithmetically exact.
 """
 function quantize_scale_pack!(blocked::AbstractVector{UInt8}, lane::Int,
                               rot_orig::AbstractVector{Float32},
-                              shift::Vector{Float32},
-                              scale_tq::Vector{Float32},
-                              inv_scale_tq::Vector{Float32},
-                              centroids::Vector{Float32}, boundaries::Vector{Float32},
-                              bits::Int, dim::Int, norm::Float32,
+                              ctx::EncodeCtx, norm::Float32,
                               ::Val{CAL}) where {CAL}
+    shift = ctx.shift
+    scale_tq = ctx.scale_tq
+    inv_scale_tq = ctx.inv_scale_tq
+    centroids = ctx.centroids
+    boundaries = ctx.boundaries
+    bits = ctx.bits
+    dim = ctx.dim
     ng = n_byte_groups(dim, bits)
     b = lane ÷ BLOCK
     l = lane % BLOCK
