@@ -9,91 +9,13 @@
 #
 # Runtime-gated on AVX2: on any other target the scalar path runs.
 
-# Julia <= 1.11 ships LLVM 15/16, which still uses typed pointers:
-# vector loads/stores need a bitcast to a matching pointer type and every
-# `ptr` parameter needs its pointee type. Julia 1.12+ (LLVM 18+) uses
-# opaque pointers. The kernels are written once with `ptr` and lowered
-# for the old dialect at load time.
-function _legacy_ir(ir::String)
-    # 1. Vector loads/stores: LLVM 15/16 need a pointer typed like the
-    #    loaded value, so bitcast first (the base pointers are i8*/float*
-    #    by construction: code/table bytes and f32 outputs).
-    out = IOBuffer()
-    n = 0
-    for line in split(ir, '\n')
-        m = match(r"^(\s*)(%\S+ = )load (<\d+ x i8>), ptr (%\w+), align", line)
-        if m !== nothing
-            n += 1
-            b = "%lt" * string(n)
-            println(out, m.captures[1], b, " = bitcast i8* ", m.captures[4],
-                    " to ", m.captures[3], "*")
-            line = replace(line, ", ptr " * m.captures[4] =>
-                                 ", " * m.captures[3] * "* " * b)
-        else
-            m = match(r"^(\s*)store (<\d+ x float>) (%\w+), ptr (%\w+), align", line)
-            if m !== nothing
-                n += 1
-                b = "%st" * string(n)
-                println(out, m.captures[1], b, " = bitcast float* ", m.captures[4],
-                        " to ", m.captures[2], "*")
-                line = replace(line, ", ptr " * m.captures[4] =>
-                                     ", " * m.captures[2] * "* " * b)
-            end
-        end
-        println(out, line)
-    end
-    ir = String(take!(out))
-
-    # 2. Parameters and GEP base pointers get their pointee types.
-    ir = replace(ir,
-        "ptr %out" => "float* %out",
-        "ptr %oa" => "float* %oa",
-        "ptr %ob" => "float* %ob",
-        "ptr %codes" => "i8* %codes",
-        "ptr %lut" => "i8* %lut",
-        "ptr %c0" => "i8* %c0",
-        "ptr %c1" => "i8* %c1",
-        "ptr %la" => "i8* %la",
-        "ptr %lb" => "i8* %lb",
-        "getelementptr float, ptr %" => "getelementptr float, float* %",
-        "getelementptr i8, ptr %" => "getelementptr i8, i8* %")
-
-    # 3. `splat (i8 k)` postdates LLVM 16; hoist the two constants each
-    #    kernel uses into entry-block instructions.
-    lines = split(ir, '\n')
-    for (i, line) in enumerate(lines)
-        for (tok, v32, v64) in (("splat (i8 4)", "%sp32_4v", "%sp64_4v"),
-                                ("splat (i8 15)", "%sp32_15v", "%sp64_15v"))
-            if occursin(tok, line)
-                lines[i] = replace(line, tok => occursin("<32 x i8>", line) ? v32 : v64)
-                break
-            end
-        end
-    end
-    defs = String[
-        "  %sp32_4 = insertelement <32 x i8> poison, i8 4, i32 0",
-        "  %sp32_4v = shufflevector <32 x i8> %sp32_4, <32 x i8> poison, <32 x i32> zeroinitializer",
-        "  %sp32_15 = insertelement <32 x i8> poison, i8 15, i32 0",
-        "  %sp32_15v = shufflevector <32 x i8> %sp32_15, <32 x i8> poison, <32 x i32> zeroinitializer",
-        "  %sp64_4 = insertelement <64 x i8> poison, i8 4, i32 0",
-        "  %sp64_4v = shufflevector <64 x i8> %sp64_4, <64 x i8> poison, <64 x i32> zeroinitializer",
-        "  %sp64_15 = insertelement <64 x i8> poison, i8 15, i32 0",
-        "  %sp64_15v = shufflevector <64 x i8> %sp64_15, <64 x i8> poison, <64 x i32> zeroinitializer",
-    ]
-    entry = findfirst(==("entry:"), lines)
-    entry !== nothing && (lines = vcat(lines[1:entry], defs, lines[entry+1:end]))
-    join(lines, '\n')
-end
-
-_legacy(ir::String) = VERSION < v"1.12" ? _legacy_ir(ir) : ir
-
 const _PSHUFB_DECL = "declare <32 x i8> @llvm.x86.avx2.pshuf.b(<32 x i8>, <32 x i8>)"
 
 const _BROADCAST_MASK = join(["i32 $i" for i in vcat(0:15, 0:15)], ", ")
 const _LOWHALF_MASK = join(["i32 $i" for i in 0:15], ", ")
 const _HIGHHALF_MASK = join(["i32 $i" for i in 16:31], ", ")
 
-const SCAN_IR_AVX2 = _legacy("""
+const SCAN_IR_AVX2 = """
 $_PSHUFB_DECL
 define void @scan_block(ptr %codes, ptr %lut, i64 %ng,
                         float %scale, float %bias, ptr %out) #0 {
@@ -146,7 +68,7 @@ fin:
 }
 
 attributes #0 = { "target-features"="+avx2" }
-""")
+"""
 
 function scan_block_avx2!(codes::Ptr{UInt8}, lut::Ptr{UInt8}, ng::Int,
                           scale::Float32, bias::Float32, out::Ptr{Float32})
@@ -156,22 +78,16 @@ function scan_block_avx2!(codes::Ptr{UInt8}, lut::Ptr{UInt8}, ng::Int,
     nothing
 end
 
-function _cpu_feature(name::Symbol, flag::String)
+function _cpu_feature(name::Symbol)
     Sys.ARCH === :x86_64 || return false
-    if isdefined(Base, :BinaryPlatforms) && isdefined(Base.BinaryPlatforms, :CPUID)
-        cp = Base.BinaryPlatforms.CPUID
-        isdefined(cp, name) && return cp.test_cpu_feature(getfield(cp, name))
-    end
-    try
-        Sys.islinux() && return occursin(flag, lowercase(read("/proc/cpuinfo", String)))
-    catch
-    end
+    cp = Base.BinaryPlatforms.CPUID
+    isdefined(cp, name) && return cp.test_cpu_feature(getfield(cp, name))
     false
 end
 
-const HAS_AVX2 = _cpu_feature(:JL_X86_avx2, "avx2")
-const HAS_AVX512BW = _cpu_feature(:JL_X86_avx512f, "avx512f") &&
-                     _cpu_feature(:JL_X86_avx512bw, "avx512bw")
+const HAS_AVX2 = _cpu_feature(:JL_X86_avx2)
+const HAS_AVX512BW = _cpu_feature(:JL_X86_avx512f) &&
+                     _cpu_feature(:JL_X86_avx512bw)
 
 const _CAT64_MASK = join(["i32 $i" for i in 0:63], ", ")
 const _BR16X4_MASK = join(["i32 $i" for i in vcat(0:15, 0:15, 0:15, 0:15)], ", ")
@@ -182,7 +98,7 @@ const _HI32_MASK = join(["i32 $i" for i in 32:63], ", ")
 # pair of table broadcasts. Bit-identical integer sums to the single-block
 # kernel; u16 lanes are flushed into u32 every 256 groups (2 * 127 * 256
 # < 2^16).
-const SCAN_PAIR_IR_AVX512 = _legacy("""
+const SCAN_PAIR_IR_AVX512 = """
 declare <64 x i8> @llvm.x86.avx512.pshuf.b.512(<64 x i8>, <64 x i8>)
 define void @scan_pair(ptr %c0, ptr %c1, ptr %lut, i64 %ng,
                        float %scale, float %bias, ptr %out) #0 {
@@ -259,7 +175,7 @@ fin:
 }
 
 attributes #0 = { "target-features"="+avx512f,+avx512bw" }
-""")
+"""
 
 function scan_pair_avx512!(c0::Ptr{UInt8}, c1::Ptr{UInt8}, lut::Ptr{UInt8}, ng::Int,
                            scale::Float32, bias::Float32, out::Ptr{Float32})
@@ -274,7 +190,7 @@ end
 # both queries' tables, so a pair of queries costs ~1.4 single-query
 # passes instead of ~2.0 and reads the codes once. Scores remain
 # bit-identical to the single-query kernel.
-const SCAN_PAIR2_IR_AVX512 = _legacy("""
+const SCAN_PAIR2_IR_AVX512 = """
 declare <64 x i8> @llvm.x86.avx512.pshuf.b.512(<64 x i8>, <64 x i8>)
 define void @scan_pair2(ptr %c0, ptr %c1, ptr %la, ptr %lb, i64 %ng,
                         float %sa, float %ba, float %sb, float %bb,
@@ -396,7 +312,7 @@ fin:
 }
 
 attributes #0 = { "target-features"="+avx512f,+avx512bw" }
-""")
+"""
 
 function scan_pair2_avx512!(c0::Ptr{UInt8}, c1::Ptr{UInt8}, la::Ptr{UInt8},
                             lb::Ptr{UInt8}, ng::Int, sa::Float32, ba::Float32,

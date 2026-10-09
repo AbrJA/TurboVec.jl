@@ -7,6 +7,8 @@ compressed to 2–4 bits per coordinate after a deterministic random
 rotation and scored directly against a per-query lookup table — no
 training phase, no decompression, online ingest.
 
+Requires Julia 1.13 or newer.
+
 ```julia
 using TurboVec
 
