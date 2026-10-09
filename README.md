@@ -70,7 +70,7 @@ candidate by its stored renormalization scale.
 | `add_with_ids!(index, X, ids)` | Add with `UInt64` external ids |
 | `search(index, Q, k; allowlist = ids)` | Search restricted to external ids |
 | `remove!(index, id)` | Remove by id, returns `Bool` |
-| `contains_id(index, id)` | Id membership |
+| `contains_id(index, id)` | Id membership (`id in index`) |
 | `write_index` / `load_index` | Persist / load `TurboQuantIndex` (path or `IO`) |
 | `write_idmap` / `load_idmap` | Persist / load `IdMapIndex` (path or `IO`) |
 | `to_bytes` / `from_bytes` | In-memory serialization, same layout as files |
