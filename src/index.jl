@@ -132,10 +132,6 @@ function add!(index::TurboQuantIndex, X::AbstractMatrix{Float32})
     old_n = index.n
     _grow_codes!(index, old_n + n)
 
-    rotated = Matrix{Float32}(undef, dim, n)
-    norms = Vector{Float32}(undef, n)
-    rotate_batch!(rotated, norms, X, index.rotation)
-
     calibrated = !isempty(index.tqplus_shift)
     shift, scale_tq = if calibrated
         index.tqplus_shift, index.tqplus_scale
@@ -143,26 +139,49 @@ function add!(index::TurboQuantIndex, X::AbstractMatrix{Float32})
         zeros(Float32, dim), ones(Float32, dim)
     end
     inv_scale_tq = 1.0f0 ./ scale_tq
-    bits = index.bit_width
-
     resize!(index.scales, old_n + n)
+
+    # Rotate and quantize per row so the dim x n rotated matrix never
+    # exists: each worker keeps its own row-sized buffers and feeds the
+    # rotated row straight into the quantizer. Same per-row op order, so
+    # the codes and scales are bit-identical to the two-pass version.
+    rot = index.rotation
+    bits = index.bit_width
     if calibrated
-        Threads.@threads for i in 1:n
-            index.scales[old_n + i] = quantize_scale_pack!(
-                index.codes, old_n + i - 1, view(rotated, :, i),
-                shift, scale_tq, inv_scale_tq, index.centroids,
-                index.boundaries, bits, dim, norms[i], Val(true))
-        end
+        _encode_rows!(index, X, old_n, n, dim, rot, shift, scale_tq,
+                      inv_scale_tq, bits, Val(true))
     else
-        Threads.@threads for i in 1:n
-            index.scales[old_n + i] = quantize_scale_pack!(
-                index.codes, old_n + i - 1, view(rotated, :, i),
-                shift, scale_tq, inv_scale_tq, index.centroids,
-                index.boundaries, bits, dim, norms[i], Val(false))
-        end
+        _encode_rows!(index, X, old_n, n, dim, rot, shift, scale_tq,
+                      inv_scale_tq, bits, Val(false))
     end
     index.n = old_n + n
     index
+end
+
+function _encode_rows!(index::TurboQuantIndex, X::AbstractMatrix{Float32},
+                       old_n::Int, n::Int, dim::Int, rot::Rotation,
+                       shift::Vector{Float32}, scale_tq::Vector{Float32},
+                       inv_scale_tq::Vector{Float32}, bits::Int, ::Val{CAL}) where {CAL}
+    @sync for (lo, hi) in _parallel_ranges(n)
+        Threads.@spawn begin
+            src = Vector{Float32}(undef, dim)
+            scratch = Vector{Float32}(undef, dim)
+            dst = Vector{Float32}(undef, dim)
+            for i in lo:hi
+                @inbounds for d in 1:dim
+                    src[d] = X[i, d]
+                end
+                nrm = simd_norm(src, dim)
+                inv = nrm > MIN_INPUT_NORM ? 1.0f0 / nrm : 0.0f0
+                apply_scaled_into!(rot, src, inv, dst, scratch)
+                index.scales[old_n + i] = quantize_scale_pack!(
+                    index.codes, old_n + i - 1, dst, shift, scale_tq,
+                    inv_scale_tq, index.centroids, index.boundaries, bits,
+                    dim, nrm, Val(CAL))
+            end
+        end
+    end
+    nothing
 end
 
 add!(index::TurboQuantIndex, X::AbstractMatrix{<:Real}) = add!(index, Float32.(X))

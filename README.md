@@ -155,25 +155,28 @@ encode warmed. `add` is a single bulk insert of `n` vectors.
 
 | shape | Rust 1t add | Julia 1t add | Rust 16t add | Julia 16t add |
 | --- | --- | --- | --- | --- |
-| 768 / 4-bit / 100k | 0.99 s | 1.54 s | 0.49 s | 0.35 s |
-| 768 / 2-bit / 100k | 0.70 s | 1.08 s | 0.32 s | 0.29 s |
-| 1536 / 4-bit / 50k | 0.98 s | 1.85 s | 0.46 s | 0.58 s |
-| 1536 / 2-bit / 50k | 0.72 s | 1.23 s | 0.28 s | 0.39 s |
+| 768 / 4-bit / 100k | 0.84 s | 1.38 s | 0.41 s | 0.35 s |
+| 768 / 2-bit / 100k | 0.68 s | 1.26 s | 0.24 s | 0.28 s |
+| 1536 / 4-bit / 50k | 0.82 s | 1.58 s | 0.36 s | 0.46 s |
+| 1536 / 2-bit / 50k | 0.58 s | 1.20 s | 0.22 s | 0.40 s |
 
 | shape | Rust 1t search | Julia 1t search | Rust 16t search | Julia 16t search |
 | --- | --- | --- | --- | --- |
-| 768 / 4-bit / 100k | 1.61 ms | 3.50 ms | 0.21 ms | 0.44 ms |
-| 768 / 2-bit / 100k | 0.92 ms | 1.66 ms | 0.11 ms | 0.24 ms |
-| 1536 / 4-bit / 50k | 1.56 ms | 3.47 ms | 0.22 ms | 0.51 ms |
-| 1536 / 2-bit / 50k | 0.89 ms | 1.59 ms | 0.10 ms | 0.18 ms |
+| 768 / 4-bit / 100k | 1.30 ms | 3.55 ms | 0.17 ms | 0.54 ms |
+| 768 / 2-bit / 100k | 0.70 ms | 1.68 ms | 0.11 ms | 0.23 ms |
+| 1536 / 4-bit / 50k | 1.35 ms | 3.83 ms | 0.17 ms | 0.48 ms |
+| 1536 / 2-bit / 50k | 0.68 ms | 1.55 ms | 0.11 ms | 0.22 ms |
 
-Encode is within ~1.5x single-threaded and roughly on par with 16
-threads. Search is 1.7–2.2x slower: the Rust kernels are hand-tuned
+Run-to-run variance on this shared host is ±20%, so treat the ratios as
+approximate: encode is ~1.6–2x slower single-threaded and comparable at
+16 threads; search is ~2–3x slower. The Rust kernels are hand-tuned
 AVX-512/AVX2 kernels, while this port runs a 64-lane AVX-512BW pair
 kernel (`src/simd.jl`) with an AVX2 single-block kernel and a portable
 bit-identical scalar fallback, selected at runtime via `Base.llvmcall`.
-The first version of this port was 10–20x slower; the remaining gap is
-kernel micro-optimization and cache behavior, not algorithm.
+Encode fuses rotation and quantization per row so the `dim × n` rotated
+matrix never exists. The first version of this port was 10–20x slower on
+search; the remaining gap is kernel micro-optimization and cache
+behavior, not algorithm.
 
 ## Testing
 
