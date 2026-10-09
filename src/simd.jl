@@ -217,11 +217,20 @@ function scan_pair2_avx2!(codes::Ptr{UInt8}, la::Ptr{UInt8}, lb::Ptr{UInt8},
     nothing
 end
 
+# CPU feature probe. `Base.BinaryPlatforms.CPUID` is the only portable
+# feature source in Base (there is no public API), so it is wrapped
+# defensively: any missing binding, unexpected constant type or probe
+# failure falls back to `false`, i.e. the scalar path, rather than
+# breaking package load on an unknown toolchain.
 function _cpu_feature(name::Symbol)
     Sys.ARCH === :x86_64 || return false
-    cp = Base.BinaryPlatforms.CPUID
-    isdefined(cp, name) && return cp.test_cpu_feature(getfield(cp, name))
-    false
+    try
+        cp = Base.BinaryPlatforms.CPUID
+        isdefined(cp, name) || return false
+        cp.test_cpu_feature(getfield(cp, name))
+    catch
+        false
+    end
 end
 
 const HAS_AVX2 = _cpu_feature(:JL_X86_avx2)
