@@ -58,6 +58,31 @@
             end
         end
 
+        # Paired two-query batches (odd and even counts, masked and not)
+        # must equal per-query searches.
+        if TurboVec.HAS_AVX512BW
+            idx = TurboQuantIndex(128, 4)
+            X = rand_rows(rng, 130, 128)
+            add!(idx, X)
+            for nq in (7, 8)
+                Q = rand_rows(rng, nq, 128)
+                s, i = search(idx, Q, 10)
+                for r in 1:nq
+                    sr, ir = search(idx, view(Q, r:r, :), 10)
+                    @test s[r, :] == sr[1, :]
+                    @test i[r, :] == ir[1, :]
+                end
+                m = falses(130)
+                m[1:5:end] .= true
+                sm, im = search(idx, Q, 6; mask = m)
+                for r in 1:nq
+                    sr, ir = search(idx, view(Q, r:r, :), 6; mask = m)
+                    @test sm[r, :] == sr[1, :]
+                    @test im[r, :] == ir[1, :]
+                end
+            end
+        end
+
         # Masked scans agree too.
         idx = TurboQuantIndex(128, 4)
         X = rand_rows(rng, 130, 128)

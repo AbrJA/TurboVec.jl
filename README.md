@@ -176,24 +176,32 @@ encode warmed. `add` is a single bulk insert of `n` vectors.
 
 | shape | Rust 1t search | Julia 1t search | Rust 16t search | Julia 16t search |
 | --- | --- | --- | --- | --- |
-| 768 / 4-bit / 100k | 1.30 ms | 3.55 ms | 0.17 ms | 0.54 ms |
-| 768 / 2-bit / 100k | 0.70 ms | 1.68 ms | 0.11 ms | 0.23 ms |
-| 1536 / 4-bit / 50k | 1.35 ms | 3.83 ms | 0.17 ms | 0.48 ms |
-| 1536 / 2-bit / 50k | 0.68 ms | 1.55 ms | 0.11 ms | 0.22 ms |
+| 768 / 4-bit / 100k | 1.30 ms | 2.21 ms | 0.17 ms | 0.34 ms |
+| 768 / 2-bit / 100k | 0.70 ms | 1.14 ms | 0.11 ms | 0.21 ms |
+| 1536 / 4-bit / 50k | 1.35 ms | 2.93 ms | 0.17 ms | 0.43 ms |
+| 1536 / 2-bit / 50k | 0.68 ms | 1.49 ms | 0.11 ms | 0.24 ms |
+
+Search numbers are a 100-query batch; a single query (`nq = 1`) pays
+~3.5 ms (768/4-bit) because it cannot amortize code reads across
+queries. Batches are scored **two queries per code pass** — the same 64
+code bytes are shuffled against both queries' tables, cutting batch cost
+to ~1.5 single-query scans per pair and halving code traffic — which is
+what puts batch search within ~1.6–2.2x of Rust. Results are
+bit-identical to per-query searches, masked or not.
 
 Run-to-run variance on this shared host is ±20%, so treat the ratios as
 approximate: encode is ~1.6–2x slower single-threaded and comparable at
-16 threads; search is ~2–3x slower. The Rust kernels are hand-tuned
-AVX-512/AVX2 kernels, while this port runs a 64-lane AVX-512BW pair
-kernel (`src/simd.jl`) with an AVX2 single-block kernel and a portable
-bit-identical scalar fallback, selected at runtime via `Base.llvmcall`.
-`llvmcall` is the same lowering Rust's `std::arch` intrinsics use; the
-gather-based alternatives measured far worse (LoopVectorization's
-`vindex` scan: 45.8 ms vs 19.5 ms scalar vs 3.4 ms kernel), and SIMD.jl
-only exposes static shuffles and hardware gathers, which cannot express
-a runtime `vpshufb` table lookup.
-Encode fuses rotation and quantization per row so the `dim × n` rotated
-matrix never exists. The first version of this port was 10–20x slower on
+16 threads; batch search is ~1.6–2.4x slower. The Rust kernels are
+hand-tuned AVX-512/AVX2 kernels, while this port runs a 64-lane
+AVX-512BW pair kernel and a two-query variant (`src/simd.jl`) with an
+AVX2 single-block kernel and a portable bit-identical scalar fallback,
+selected at runtime via `Base.llvmcall`. `llvmcall` is the same lowering
+Rust's `std::arch` intrinsics use; the gather-based alternatives measured
+far worse (LoopVectorization's `vindex` scan: 45.8 ms vs 19.5 ms scalar
+vs 3.4 ms kernel), and SIMD.jl only exposes static shuffles and hardware
+gathers, which cannot express a runtime `vpshufb` table lookup. Encode
+fuses rotation and quantization per row so the `dim × n` rotated matrix
+never exists. The first version of this port was 10–20x slower on
 search; the remaining gap is kernel micro-optimization and cache
 behavior, not algorithm.
 

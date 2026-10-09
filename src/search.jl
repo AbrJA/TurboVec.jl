@@ -268,22 +268,105 @@ function _search_one!(index::TurboQuantIndex, qrow::AbstractVector{Float32}, k::
     sorted_results(topk)
 end
 
+@inline function _write_row!(scores::Matrix{Float32}, indices::Matrix{Int},
+                             qi::Int, s::Vector{Float32}, ix::Vector{Int},
+                             k_eff::Int)
+    @inbounds for j in 1:k_eff
+        scores[qi, j] = s[j]
+        indices[qi, j] = ix[j] + 1
+    end
+    nothing
+end
+
+# Two queries per code pass: the pair kernel shuffles each 64-code chunk
+# against both queries' tables, so a pair costs ~1.4 single-query scans
+# and reads the codes once. Same integer sums, so results are identical
+# to two independent searches.
+function _scan_two_avx512!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
+                           prepB::PreparedLut, codes::Vector{UInt8},
+                           scales::Vector{Float32}, n::Int, n_blocks::Int, mask::M) where {M}
+    outA = Vector{Float32}(undef, 64)
+    outB = Vector{Float32}(undef, 64)
+    ng = prepA.ng
+    stride = ng * BLOCK
+    GC.@preserve codes outA outB begin
+        pc = pointer(codes)
+        pla = pointer(prepA.table)
+        plb = pointer(prepB.table)
+        poa = pointer(outA)
+        pob = pointer(outB)
+        b = 0
+        while b < n_blocks
+            base_vec = b * BLOCK
+            if b + 1 < n_blocks
+                if M !== Nothing &&
+                   !_mask_block_allows(mask, base_vec) &&
+                   !_mask_block_allows(mask, base_vec + BLOCK)
+                    b += 2
+                    continue
+                end
+                scan_pair2_avx512!(pc + b * stride, pc + (b + 1) * stride,
+                                   pla, plb, ng, prepA.scale, prepA.bias,
+                                   prepB.scale, prepB.bias, poa, pob)
+                _insert_lanes!(topkA, outA, 1, base_vec, n, scales, mask)
+                _insert_lanes!(topkA, outA, BLOCK + 1, base_vec + BLOCK, n,
+                               scales, mask)
+                _insert_lanes!(topkB, outB, 1, base_vec, n, scales, mask)
+                _insert_lanes!(topkB, outB, BLOCK + 1, base_vec + BLOCK, n,
+                               scales, mask)
+                b += 2
+            else
+                scan_block_avx2!(pc + b * stride, pla, ng, prepA.scale,
+                                 prepA.bias, poa)
+                _insert_lanes!(topkA, outA, 1, base_vec, n, scales, mask)
+                scan_block_avx2!(pc + b * stride, plb, ng, prepB.scale,
+                                 prepB.bias, poa)
+                _insert_lanes!(topkB, outA, 1, base_vec, n, scales, mask)
+                b += 1
+            end
+        end
+    end
+    nothing
+end
+
+function _search_two!(index::TurboQuantIndex, qrowA::AbstractVector{Float32},
+                      qrowB::AbstractVector{Float32}, k::Int, mask::M) where {M}
+    dim = index.dim
+    prepA = _prepare_lut(index, qrowA, Vector{Float32}(undef, dim),
+                         Vector{Float32}(undef, dim))
+    prepB = _prepare_lut(index, qrowB, Vector{Float32}(undef, dim),
+                         Vector{Float32}(undef, dim))
+    topkA = TopK(k)
+    topkB = TopK(k)
+    _scan_two_avx512!(topkA, topkB, prepA, prepB, index.codes, index.scales,
+                      index.n, index.n_blocks, mask)
+    (sorted_results(topkA), sorted_results(topkB))
+end
+
 function _search_batch!(index::TurboQuantIndex, queries::AbstractMatrix{Float32},
                         k_eff::Int, mask::Union{Nothing,Vector{UInt64}},
                         scores::Matrix{Float32}, indices::Matrix{Int}, nq::Int)
     if nq == 1
         s1, ix1 = _search_one!(index, view(queries, 1, :), k_eff, true, mask)
-        @inbounds for j in 1:k_eff
-            scores[1, j] = s1[j]
-            indices[1, j] = ix1[j] + 1
+        _write_row!(scores, indices, 1, s1, ix1, k_eff)
+    elseif HAS_AVX512BW
+        Threads.@threads for p in 1:cld(nq, 2)
+            qa = 2p - 1
+            qb = 2p
+            if qb > nq
+                s, ix = _search_one!(index, view(queries, qa, :), k_eff, false, mask)
+                _write_row!(scores, indices, qa, s, ix, k_eff)
+            else
+                (sA, iA), (sB, iB) = _search_two!(
+                    index, view(queries, qa, :), view(queries, qb, :), k_eff, mask)
+                _write_row!(scores, indices, qa, sA, iA, k_eff)
+                _write_row!(scores, indices, qb, sB, iB, k_eff)
+            end
         end
     else
         Threads.@threads for qi in 1:nq
             s, ix = _search_one!(index, view(queries, qi, :), k_eff, false, mask)
-            @inbounds for j in 1:k_eff
-                scores[qi, j] = s[j]
-                indices[qi, j] = ix[j] + 1
-            end
+            _write_row!(scores, indices, qi, s, ix, k_eff)
         end
     end
     nothing
