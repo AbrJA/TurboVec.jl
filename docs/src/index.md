@@ -1,27 +1,35 @@
-# TurboVec.jl
+# ⚡ TurboVec.jl
 
-A Julia port of [`turbovec`](https://github.com/RyanCodrai/turbovec), a
-vector index built on Google Research's
-[TurboQuant](https://arxiv.org/abs/2504.19874) algorithm: vectors are
-compressed to 2–4 bits per coordinate by a deterministic random rotation
-and scored directly against a per-query lookup table — no training
-phase, no decompression, online ingest, multithreaded search.
+A Julia vector index built on Google Research's
+[TurboQuant](https://arxiv.org/abs/2504.19874) algorithm: compress embeddings to **2–4 bits
+per coordinate** and search the compressed form directly — no training phase, no index
+rebuilds, online ingest.
 
 ```julia
 using TurboVec
 
-index = TurboQuantIndex(1536, 4)     # dim, bits per coordinate
-add!(index, X)                       # X::Matrix{Float32}, n × 1536
-scores, ids = search(index, Q, 10)   # Q::Matrix{Float32}, nq × 1536
+X = randn(Float32, 10_000, 768)     # one row per item
+Q = randn(Float32, 3, 768)          # queries
+
+index = TurboQuantIndex(768, 4)     # dim, bits per coordinate
+add!(index, X)
+scores, slots = search(index, Q, 5)
 ```
 
-The full reference — algorithm, API, persistence, filtering, thread and
-precision notes, performance vs the Rust implementation, and the
-development tooling — lives in the
-[README](https://github.com/AbrJA/TurboVec.jl#readme).
+Stable ids and filtered search:
 
-## API
-
-```@autodocs
-Modules = [TurboVec]
+```julia
+index = IdMapIndex(768, 4)
+add_with_ids!(index, X, ids)
+scores, ids = search(index, Q, 10; allowlist = allowed_ids)
+remove!(index, 1002)                # O(1); other ids stay valid
 ```
+
+## Where to go next
+
+* [Guide](guide.md) — how the compression works, filtering, threading, persistence,
+  precision notes.
+* [API reference](reference.md) — every exported function and the Julia interface
+  conventions.
+* [Validation & development](validation.md) — bit-exactness vs the Rust crate, benchmarks,
+  the optimization log and the dev harnesses.

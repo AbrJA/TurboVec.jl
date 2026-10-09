@@ -3,7 +3,10 @@ using Documenter, TurboVec
 makedocs(modules = [TurboVec],
          sitename = "TurboVec.jl",
          format = Documenter.HTML(),
-         pages = ["Home" => "index.md"],
+         pages = ["Home" => "index.md",
+                  "Guide" => "guide.md",
+                  "API reference" => "reference.md",
+                  "Validation & development" => "validation.md"],
          )
 
 deploydocs(
