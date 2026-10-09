@@ -51,7 +51,13 @@
         # truncated file is rejected rather than silently accepted
         bad = joinpath(dir, "bad.tv")
         write(bad, read(joinpath(dir, "idx_4.tv"))[1:20])
-        @test_throws Exception load_index(bad)
+        @test_throws InvalidFileFormat load_index(bad)
+
+        # a corrupted body is caught by the v2 checksum
+        corrupt = read(joinpath(dir, "idx_4.tv"))
+        corrupt[end - 8] ⊻= 0x5a
+        write(bad, corrupt)
+        @test_throws InvalidFileFormat load_index(bad)
 
         # empty index with committed dim round-trips
         epath = joinpath(dir, "empty.tv")

@@ -52,6 +52,7 @@ include("topk.jl")
 include("index.jl")
 include("search.jl")
 include("id_map.jl")
+include("crc32c.jl")
 include("io.jl")
 include("precompile.jl")
 
