@@ -147,6 +147,47 @@ function _scan_blocks_avx2!(topk::TopK, prep::PreparedLut, ctx::ScanCtx,
     nothing
 end
 
+# aarch64 twin of the AVX2 single-block kernel.
+function _scan_blocks_neon!(topk::TopK, prep::PreparedLut, ctx::ScanCtx,
+                            bfirst::Int, blast::Int, mask::M,
+                            out::Vector{Float32}) where {M}
+    table = prep.table
+    codes = ctx.codes
+    scales = ctx.scales
+    ng = ctx.ng
+    n = ctx.n
+    bias = prep.bias
+    scale = prep.scale
+    GC.@preserve codes table out begin
+        pc = pointer(codes)
+        pl = pointer(table)
+        po = pointer(out)
+        for b in bfirst:(blast - 1)
+            base_vec = b * BLOCK
+            if M !== Nothing
+                _mask_block_allows(mask, base_vec) || continue
+            end
+            scan_block_neon!(pc + b * ng * BLOCK, pl, ng, scale, bias, po)
+            vi0 = base_vec
+            if M === Nothing
+                @inbounds for l in 1:BLOCK
+                    vi = vi0 + l
+                    vi > n && break
+                    insert_result!(topk, out[l] * scales[vi], vi - 1)
+                end
+            else
+                @inbounds for l in 1:BLOCK
+                    vi = vi0 + l
+                    vi > n && break
+                    _mask_allows(mask, vi - 1) || continue
+                    insert_result!(topk, out[l] * scales[vi], vi - 1)
+                end
+            end
+        end
+    end
+    nothing
+end
+
 @inline function _insert_lanes!(topk::TopK, out::Vector{Float32}, off::Int,
                                 base_vec::Int, ctx::ScanCtx, mask::M) where {M}
     n = ctx.n
@@ -211,6 +252,8 @@ end
         _scan_blocks_avx512!(topk, prep, ctx, bfirst, blast, mask, out)
     elseif HAS_AVX2
         _scan_blocks_avx2!(topk, prep, ctx, bfirst, blast, mask, out)
+    elseif HAS_NEON
+        _scan_blocks_neon!(topk, prep, ctx, bfirst, blast, mask, out)
     else
         acc = Vector{Int32}(undef, BLOCK)
         _scan_blocks_scalar!(topk, prep, ctx, bfirst, blast, acc, mask)
@@ -395,8 +438,11 @@ function _search_two!(index::TurboQuantIndex, qrowA::AbstractVector{Float32},
     if HAS_AVX512BW
         _scan_two_avx512!(topkA, topkB, prepA, prepB, ctx, index.n_blocks,
                           mask, outA, outB)
-    else
+    elseif HAS_AVX2
         _scan_two_avx2!(topkA, topkB, prepA, prepB, ctx, index.n_blocks,
+                        mask, outA, outB)
+    else
+        _scan_two_neon!(topkA, topkB, prepA, prepB, ctx, index.n_blocks,
                         mask, outA, outB)
     end
     (sorted_results(topkA), sorted_results(topkB))
@@ -432,13 +478,42 @@ function _scan_two_avx2!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
     nothing
 end
 
+# aarch64 twin of the two-query AVX2 pass.
+function _scan_two_neon!(topkA::TopK, topkB::TopK, prepA::PreparedLut,
+                         prepB::PreparedLut, ctx::ScanCtx, n_blocks::Int,
+                         mask::M, outA::Vector{Float32},
+                         outB::Vector{Float32}) where {M}
+    codes = ctx.codes
+    scales = ctx.scales
+    ng = prepA.ng
+    stride = ng * BLOCK
+    GC.@preserve codes outA outB begin
+        pc = pointer(codes)
+        pla = pointer(prepA.table)
+        plb = pointer(prepB.table)
+        poa = pointer(outA)
+        pob = pointer(outB)
+        for b in 0:(n_blocks - 1)
+            base_vec = b * BLOCK
+            if M !== Nothing && !_mask_block_allows(mask, base_vec)
+                continue
+            end
+            scan_pair2_neon!(pc + b * stride, pla, plb, ng, prepA.scale,
+                             prepA.bias, prepB.scale, prepB.bias, poa, pob)
+            _insert_lanes!(topkA, outA, 1, base_vec, ctx, mask)
+            _insert_lanes!(topkB, outB, 1, base_vec, ctx, mask)
+        end
+    end
+    nothing
+end
+
 function _search_batch!(index::TurboQuantIndex, queries::AbstractMatrix{Float32},
                         k_eff::Int, mask::Union{Nothing,Vector{UInt64}},
                         scores::Matrix{Float32}, indices::Matrix{Int}, nq::Int)
     if nq == 1
         s1, ix1 = _search_one!(index, view(queries, 1, :), k_eff, true, mask)
         _write_row!(scores, indices, 1, s1, ix1, k_eff)
-    elseif HAS_AVX512BW || HAS_AVX2
+    elseif HAS_AVX512BW || HAS_AVX2 || HAS_NEON
         Threads.@threads for p in 1:cld(nq, 2)
             qa = 2p - 1
             qb = 2p
