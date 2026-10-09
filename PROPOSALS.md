@@ -27,11 +27,22 @@ Each proposal lists: location → problem → proposal → impact/effort.
 | P0-6/7/8 LUT/scan allocation removal | ✅ done | `1d4a623` |
 | P0-9 validation scan, P0-10 calibration buffers | ✅ done | `255c590` |
 | P0-11 precompile coverage | ✅ done | `ec77d7a` |
-| P0-12 changelog (registration + SemVer policy deferred by choice) | ✅ changelog done | this commit |
+| P0-12 changelog (registration + SemVer policy deferred by choice) | ✅ changelog done | `4466b5d` |
 
 Verified with the full `Pkg.test()` suite, the `--check-bounds=yes
 --depwarn=error` hardening run, and `dev/validate.jl` (all green).
-Phases B–D remain as described in §4.
+
+**Phase B (P1-3, P1-7…P1-11, P1-13…P1-15, P1-16) has landed:**
+
+| Item | Status | Commit |
+| --- | --- | --- |
+| P1-7…P1-11 API/polish, P1-13…P1-15 cleanup | ✅ done | `72b306b` |
+| P1-3 AVX2 two-query batch kernel (1.54x measured) | ✅ done | `f1e457a` |
+| P1-16 CI: aarch64, validate, hardening, JET, formatter | ✅ done | `8dd442f` |
+| P0-12(3) SemVer policy in the guide (registration still yours) | ✅ docs done | `72b306b` |
+
+The CI jobs added in Phase B can only be verified on your next push
+(they never run locally). Phases C–D remain as described in §4.
 
 ---
 
@@ -269,9 +280,10 @@ immutable `EncodeCtx` / `ScanCtx` (codes, scales, centroids, boundaries, shift/s
 bits, dim, ng) constructed once per operation. Type-stable (all concrete fields), no perf
 cost, and future kernels get one argument instead of a dozen. Effort: medium (mechanical).
 
-**P1-13. Remove dead code and unused parameters.**
-`NORM_CHAINS` (`src/encode.jl:16`, never read), `scale_lut` (`src/lut.jl:155`, unused
-anywhere), and the ignored `ng` argument of `byte_offset` (`src/pack.jl:22`). Trivial.
+**P1-13. Remove dead code.**
+`NORM_CHAINS` (`src/encode.jl:16`, never read) and `scale_lut` (`src/lut.jl:155`, unused
+anywhere). Trivial. (The `ng` argument of `byte_offset` flagged in the first draft turned
+out to be used by the offset arithmetic and stays.)
 
 **P1-14. Simplify the codebook memo lock discipline.**
 `codebook` (`src/codebook.jl:174`, memo at `:165-166`) does lock→get→unlock, compute, then

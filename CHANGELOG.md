@@ -17,6 +17,11 @@ breaking change.
   bitwise check of the embedded codebook against the canonical codebook.
 - Tests for truncated, corrupted, duplicate-id and non-canonical-codebook
   files, for validation error precedence, and for out-of-domain ids.
+- Structural `==` for both index types and a two-line plain-text `show`.
+- A documented thread-safety contract and a SemVer policy for the
+  bit-exactness contracts (guide).
+- Opt-in JET and JuliaFormatter test targets
+  (`Pkg.test(; test_args = ["jet"])` / `["format"]`).
 
 ### Changed
 - **Breaking:** the persistence format is now v2 (`TVECJL\2\0` with a CRC-32C
@@ -35,6 +40,15 @@ breaking change.
   invalid coordinate; `calibrate!` reuses one sort buffer per worker task.
 - `to_bytes` preallocates the exact serialized size.
 - Precompile workload covers 3-bit, lazy, `from_parts`, and 768-dim paths.
+- Validators report 1-based slot/coord indices, matching the rest of the
+  error surface.
+- AVX2 batch search now scores two queries per code pass (1.54x faster
+  than two separate scans at 100k × 768 4-bit); AVX2-only hosts get the
+  same pairing the AVX-512 path already had.
+- `packed_codes` and the `from_parts` rebuild are multi-threaded.
+- CI adds linux-aarch64, the frozen Rust cross-validation, a
+  bounds/depwarn hardening run, JET static analysis, and a formatting
+  check; `src`/`test` are now pinned to `.JuliaFormatter.toml`.
 
 ### Fixed
 - Truncated files now raise `InvalidFileFormat` instead of a bare `EOFError`.
