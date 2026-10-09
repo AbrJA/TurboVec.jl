@@ -4,6 +4,7 @@ on:
     branches: [main, master]
     tags: ["*"]
   pull_request:
+  workflow_dispatch:
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
@@ -100,6 +101,19 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       - name: Check formatting
         run: julia --project=. -e 'using Pkg; Pkg.test(; test_args = ["format"])'
+  benchmark:
+    name: Benchmark (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Run the Julia benchmark harness
+        run: julia --project=. -t auto dev/bench2.jl
   docs:
     name: Documentation
     runs-on: ubuntu-latest
