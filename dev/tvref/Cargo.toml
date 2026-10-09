@@ -1,0 +1,15 @@
+[package]
+name = "tvref"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+turbovec = { path = "../../../turbovec" }
+rand_chacha = "=0.3.1"
+rand = "0.8"
+
+[profile.release]
+opt-level = 3
+
+# Standalone: keep these dev harnesses out of the parent cargo workspace.
+[workspace]
