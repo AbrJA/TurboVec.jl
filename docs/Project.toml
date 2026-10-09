@@ -1,5 +1,9 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+TurboVec = "8b2403ec-d4c2-4d0c-b4c3-07e83daabd07"
+
+[sources]
+TurboVec = {path = ".."}
 
 [compat]
 Documenter = "1"
