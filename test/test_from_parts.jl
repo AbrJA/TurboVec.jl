@@ -70,7 +70,7 @@
         for bad in (NaN32, Inf32, -1.0f0, 2.0f22)
             sc2 = copy(sc)
             sc2[1] = bad
-            @test_throws InvalidFileFormat from_parts(dim, bits, n, pc, sc2)
+            @test_throws InvalidParts from_parts(dim, bits, n, pc, sc2)
         end
     end
 
@@ -78,14 +78,14 @@
         good_shift = zeros(Float32, dim)
         good_scale = ones(Float32, dim)
         for bad in (NaN32, Inf32)
-            @test_throws InvalidFileFormat from_parts(
+            @test_throws InvalidParts from_parts(
                 dim, bits, n, pc, sc, fill(bad, dim), good_scale)
-            @test_throws InvalidFileFormat from_parts(
+            @test_throws InvalidParts from_parts(
                 dim, bits, n, pc, sc, good_shift, fill(bad, dim))
         end
-        @test_throws InvalidFileFormat from_parts(
+        @test_throws InvalidParts from_parts(
             dim, bits, n, pc, sc, good_shift, zeros(Float32, dim))
-        @test_throws InvalidFileFormat from_parts(
+        @test_throws InvalidParts from_parts(
             dim, bits, n, pc, sc, good_shift, -ones(Float32, dim))
     end
 end

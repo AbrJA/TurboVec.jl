@@ -428,3 +428,12 @@ search(index::TurboQuantIndex, queries::AbstractMatrix{Float32}, k::Integer,
 search(index::TurboQuantIndex, queries::AbstractMatrix{<:Real}, k::Integer;
        mask::Union{Nothing,AbstractVector{Bool}} = nothing) =
     search(index, Float32.(queries), k; mask = mask)
+
+"""Single-query convenience: returns `1 × k_eff` matrices."""
+search(index::TurboQuantIndex, q::AbstractVector{Float32}, k::Integer;
+       mask::Union{Nothing,AbstractVector{Bool}} = nothing) =
+    search(index, reshape(q, 1, :), k; mask = mask)
+
+search(index::TurboQuantIndex, q::AbstractVector{<:Real}, k::Integer;
+       mask::Union{Nothing,AbstractVector{Bool}} = nothing) =
+    search(index, reshape(Float32.(q), 1, :), k; mask = mask)

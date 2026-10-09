@@ -63,6 +63,9 @@ Base.isempty(index::TurboQuantIndex) = index.n == 0
 """The committed dimensionality, or `nothing` for a lazy index."""
 dim_opt(index::TurboQuantIndex) = index.dim == 0 ? nothing : index.dim
 
+"""Whether the index is lazy (no committed dim yet)."""
+is_lazy(index::TurboQuantIndex) = index.dim == 0
+
 """`true` when a TQ+ per-coordinate calibration is committed."""
 calibration_state(index::TurboQuantIndex) =
     isempty(index.tqplus_shift) ? :uncalibrated : :calibrated
@@ -186,6 +189,13 @@ end
 
 add!(index::TurboQuantIndex, X::AbstractMatrix{<:Real}) = add!(index, Float32.(X))
 
+"""Add a single vector (one row)."""
+add!(index::TurboQuantIndex, x::AbstractVector{Float32}) =
+    add!(index, reshape(x, 1, :))
+
+add!(index::TurboQuantIndex, x::AbstractVector{<:Real}) =
+    add!(index, reshape(Float32.(x), 1, :))
+
 """
     calibrate!(index, sample)
 
@@ -278,14 +288,36 @@ dim(index::TurboQuantIndex) = index.dim
 """Bits per coordinate (2, 3 or 4)."""
 bit_width(index::TurboQuantIndex) = index.bit_width
 
-"""Per-vector length-renormalization scales, one per slot."""
+"""Per-vector length-renormalization scales, one per slot.
+
+Returns the index's live internal array — treat it as read-only.
+"""
 scales(index::TurboQuantIndex) = index.scales
 
-"""Committed TQ+ shift, empty when uncalibrated."""
+"""Committed TQ+ shift; empty when uncalibrated.
+
+Returns the index's live internal array — treat it as read-only.
+"""
 tqplus_shift(index::TurboQuantIndex) = index.tqplus_shift
 
-"""Committed TQ+ scale, empty when uncalibrated."""
+"""Committed TQ+ scale; empty when uncalibrated.
+
+Returns the index's live internal array — treat it as read-only.
+"""
 tqplus_scale(index::TurboQuantIndex) = index.tqplus_scale
+
+"""Whether a TQ+ calibration is committed (the idiomatic predicate form)."""
+is_calibrated(index::TurboQuantIndex) = !isempty(index.tqplus_shift)
+
+"""
+    calibration(index) -> Union{Nothing, NamedTuple}
+
+The committed TQ+ calibration as `(shift = …, scale = …)`, or `nothing`
+when the index is uncalibrated. The returned vectors are live internal
+state — treat them as read-only.
+"""
+calibration(index::TurboQuantIndex) =
+    is_calibrated(index) ? (shift = index.tqplus_shift, scale = index.tqplus_scale) : nothing
 
 """No-op kept for API parity: this port has no search caches to warm."""
 prepare(index::TurboQuantIndex) = index
@@ -300,15 +332,52 @@ parity with turbovec.
 packed_ready(index::TurboQuantIndex) = true
 
 """
-    codes_blocked_seq(index) -> Vector{UInt8}
+    blocked_codes(index) -> Vector{UInt8}
 
 The sequential blocked code bytes (32 vectors per block, one code byte
 per lane per byte group) — the layout the scan reads and the file
 stores. Empty for a lazy or empty index.
 """
-function codes_blocked_seq(index::TurboQuantIndex)
+function blocked_codes(index::TurboQuantIndex)
     (index.dim == 0 || index.n == 0) && return UInt8[]
     copy(index.codes)
+end
+
+# ── Base integration ───────────────────────────────────────────────────────
+
+"""`size(index) == (length(index), dim(index))`."""
+Base.size(index::TurboQuantIndex) = (index.n, index.dim)
+Base.size(index::TurboQuantIndex, d::Integer) =
+    d == 1 ? index.n : d == 2 ? index.dim : 1
+
+function Base.show(io::IO, index::TurboQuantIndex)
+    print(io, "TurboQuantIndex(")
+    if index.dim == 0
+        print(io, "lazy, $(index.bit_width)-bit, $(index.n) vectors)")
+    else
+        print(io, "$(index.dim) features, $(index.bit_width)-bit, ",
+              "$(index.n) vectors, ",
+              is_calibrated(index) ? "calibrated" : "uncalibrated", ")")
+    end
+end
+
+"""Deep copy (codes, scales and calibration; geometry is immutable and shared)."""
+function Base.copy(index::TurboQuantIndex)
+    TurboQuantIndex(index.dim, index.bit_width, index.n, index.n_blocks,
+                    copy(index.codes), copy(index.scales),
+                    copy(index.tqplus_shift), copy(index.tqplus_scale),
+                    index.rotation, index.boundaries, index.centroids)
+end
+
+"""Drop every stored vector and the calibration; keep committed geometry."""
+function Base.empty!(index::TurboQuantIndex)
+    empty!(index.codes)
+    empty!(index.scales)
+    empty!(index.tqplus_shift)
+    empty!(index.tqplus_scale)
+    index.n = 0
+    index.n_blocks = 0
+    index
 end
 
 """
@@ -323,31 +392,6 @@ function codebook_for_write(index::TurboQuantIndex)
     (index.dim == 0 || index.n == 0) &&
         return (zeros(Float32, n_levels - 1), zeros(Float32, n_levels))
     codebook(index.bit_width, index.dim)
-end
-
-"""
-    first_invalid_coord(values, dim; max_magnitude = 1e16)
-        -> Union{Nothing, NamedTuple}
-
-Scan a flat `n * dim` buffer for the first coordinate that is not finite
-or has magnitude >= `max_magnitude`, and return
-`(vector_index, coord_index, value)` with **1-based** indices, or
-`nothing` when the input is clean. This is the predicate `add!` and
-`search` enforce.
-"""
-function first_invalid_coord(values::AbstractVector{Float32}, dim::Integer;
-                             max_magnitude::Float32 = MAX_INPUT_MAGNITUDE)
-    dim > 0 || throw(ArgumentError("dim must be positive, got $dim"))
-    length(values) % dim == 0 ||
-        throw(ArgumentError("values length $(length(values)) is not a multiple of dim $dim"))
-    @inbounds for (i, x) in enumerate(values)
-        if !(abs(x) < max_magnitude)
-            vi = (i - 1) ÷ dim + 1
-            ci = (i - 1) % dim + 1
-            return (vector_index = vi, coord_index = ci, value = x)
-        end
-    end
-    nothing
 end
 
 """
@@ -421,9 +465,11 @@ function from_parts(dim::Integer, bit_width::Integer, n::Integer,
     if has_shift
         length(tqplus_shift) == d || throw(InvalidParts("tqplus_shift length must equal dim"))
         length(tqplus_scale) == d || throw(InvalidParts("tqplus_scale length must equal dim"))
-        _validate_calibration(Vector{Float32}(tqplus_shift), Vector{Float32}(tqplus_scale))
+        msg = _calibration_error(tqplus_shift, tqplus_scale)
+        msg === nothing || throw(InvalidParts(msg))
     end
-    _validate_scales(scales)
+    msg = _scale_error(scales)
+    msg === nothing || throw(InvalidParts(msg))
 
     shift = has_shift ? Vector{Float32}(tqplus_shift) : Float32[]
     sc = has_scale ? Vector{Float32}(tqplus_scale) : Float32[]

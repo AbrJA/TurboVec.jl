@@ -20,7 +20,7 @@
         shift = fill(cap, dim)
         ok = from_parts(dim, bits, n, pc, sc, shift, ones(Float32, dim))
         @test tqplus_shift(ok) == shift
-        @test_throws InvalidFileFormat from_parts(
+        @test_throws InvalidParts from_parts(
             dim, bits, n, pc, sc, fill(20.0f0 * cap, dim), ones(Float32, dim))
     end
 
@@ -30,7 +30,7 @@
         shift = fill(1.0f-3, dim)
         ok = from_parts(dim, bits, n, pc, sc, shift, scale)
         @test tqplus_scale(ok) == scale
-        @test_throws InvalidFileFormat from_parts(
+        @test_throws InvalidParts from_parts(
             dim, bits, n, pc, sc, shift, fill(floor / 20.0f0, dim))
     end
 
@@ -40,7 +40,7 @@
         @test from_parts(dim, bits, n, pc, sc2) isa TurboQuantIndex
         sc3 = copy(sc)
         sc3[2] = 2.0f0 * TurboVec.MAX_VECTOR_SCALE
-        @test_throws InvalidFileFormat from_parts(dim, bits, n, pc, sc3)
+        @test_throws InvalidParts from_parts(dim, bits, n, pc, sc3)
     end
 
     @testset "calibration at the bound round trips" begin

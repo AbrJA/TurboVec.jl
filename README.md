@@ -77,9 +77,9 @@ candidate by its stored renormalization scale.
 | `serialized_len(index)` | Exact on-disk length, without serializing |
 | `from_parts(dim, bits, n, packed, scales, shift, scale)` | Rebuild from validated raw parts |
 | `packed_codes(index)` | Canonical bit-plane codes |
-| `codes_blocked_seq(index)` | Sequential blocked code bytes (the file payload) |
+| `blocked_codes(index)` | Sequential blocked code bytes (the file payload) |
 | `codebook_for_write(index)` | Codebook arrays a file embeds |
-| `dim`, `dim_opt`, `bit_width`, `scales`, `tqplus_shift`, `tqplus_scale` | Accessors |
+| `size(index)` / `size(index, d)`, `is_lazy`, `dim_opt`, `bit_width`, `scales`, `tqplus_shift`, `tqplus_scale` | Accessors (`size` is `(n, dim)`) |
 | `packed_ready` / `slots_ready` | Layout-state probes (always `true` here) |
 | `batch_addable(index, ids)` | Whether an id batch is addable |
 | `first_invalid_coord(values, dim)` | First invalid coordinate (1-based) |
@@ -94,6 +94,30 @@ and non-allowed individual slots are dropped before heap insertion, so
 Invalid input (NaN, ±Inf, `|x| ≥ 1e16`) is rejected with typed errors;
 the zero vector is stored with score 0 and ranks last. Both index types
 are safe for concurrent `search` calls.
+
+## Julia interface conventions
+
+The port leans on Julia's own protocol rather than a bespoke API:
+
+* **Collections**: `length`, `isempty`, `size(idx) == (n, dim)`,
+  `copy`, `empty!`, and a compact `show`. `IdMapIndex` also supports
+  `id in index` and iteration (`for id in index`).
+* **Single vectors**: `add!(idx, x)`, `search(idx, q, k)` (returns
+  `1 × k_eff` matrices) and `add_with_ids!(idx, x, id)` are overloads of
+  the matrix forms.
+* **Predicates and accessors**: `is_calibrated(idx)` and
+  `calibration(idx)` (a `NamedTuple` or `nothing`) are the idiomatic
+  spellings; `calibration_state(idx)` (a `Symbol`) is kept for parity.
+  `dim(idx)` is available but **not exported** — `size(idx, 2)` is the
+  Julia spelling, and `is_lazy(idx)` answers the uncommitted-dim
+  question.
+* **Ownership**: accessors that hand back stored arrays (`scales`,
+  `tqplus_shift`, `tqplus_scale`) return live internal storage — treat
+  them as read-only; the serializers and `blocked_codes`/`external_ids`
+  return copies.
+* **Errors**: Julia exceptions, all subtypes of `TurboVecError`, instead
+  of `Result` values; validator messages distinguish malformed parts
+  (`InvalidParts`) from malformed files (`InvalidFileFormat`).
 
 ## Layout and precision notes
 

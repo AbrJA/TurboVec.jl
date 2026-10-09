@@ -8,12 +8,12 @@
     idx = TurboQuantIndex(dim, bits)
     add!(idx, X)
 
-    @testset "codes_blocked_seq" begin
-        cbs = codes_blocked_seq(idx)
+    @testset "blocked_codes" begin
+        cbs = blocked_codes(idx)
         @test cbs == idx.codes
         @test length(cbs) == TurboVec.blocked_len(n, bits, dim)
-        @test isempty(codes_blocked_seq(TurboQuantIndex(dim, bits)))
-        @test isempty(codes_blocked_seq(TurboQuantIndex(bits)))
+        @test isempty(blocked_codes(TurboQuantIndex(dim, bits)))
+        @test isempty(blocked_codes(TurboQuantIndex(bits)))
     end
 
     @testset "codebook_for_write" begin

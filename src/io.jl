@@ -64,46 +64,6 @@ function _read_header(io::IO)
     (kind, Int(bits), dim, n, cal == 0x01)
 end
 
-"""Smallest TQ+ scale at `dim` that cannot drive a divided query to overflow."""
-min_tqplus_scale(dim::Int) =
-    Float32(max(dim, 1)) * MAX_INPUT_MAGNITUDE / floatmax(Float32) * 10.0f0
-
-"""Largest TQ+ shift magnitude at `dim` whose bias dot product cannot overflow."""
-max_tqplus_shift(dim::Int) =
-    floatmax(Float32) / (Float32(max(dim, 1)) * MAX_INPUT_MAGNITUDE) / 10.0f0
-
-"""Largest per-vector renormalization scale that cannot by itself overflow."""
-const MAX_VECTOR_SCALE = 1.0f22
-
-function _validate_calibration(shift::AbstractVector{Float32},
-                               scale::AbstractVector{Float32})
-    cap = max_tqplus_shift(length(shift))
-    @inbounds for (i, v) in enumerate(shift)
-        if !isfinite(v) || abs(v) > cap
-            throw(InvalidFileFormat(
-                "invalid TQ+ shift at coord $(i - 1): $v (must be finite and |shift| <= $cap)"))
-        end
-    end
-    floor = min_tqplus_scale(length(scale))
-    @inbounds for (i, v) in enumerate(scale)
-        if !isfinite(v) || v < floor
-            throw(InvalidFileFormat(
-                "invalid TQ+ scale at coord $(i - 1): $v (must be finite and >= $floor)"))
-        end
-    end
-    nothing
-end
-
-function _validate_scales(scales::AbstractVector{Float32})
-    @inbounds for (i, s) in enumerate(scales)
-        if !isfinite(s) || s < 0.0f0 || s > MAX_VECTOR_SCALE
-            throw(InvalidFileFormat(
-                "invalid per-vector scale at slot $(i - 1): $s (must be finite and in [0, $MAX_VECTOR_SCALE])"))
-        end
-    end
-    nothing
-end
-
 function _write_index_body(io::IO, index::TurboQuantIndex)
     n_levels = 1 << index.bit_width
     write(io, index.centroids)
@@ -140,9 +100,11 @@ function _read_index_body(io::IO, kind::UInt8, bits::Int, dim::Int, n::Int,
     end
     scales = Vector{Float32}(undef, n)
     read!(io, scales)
-    _validate_scales(scales)
+    msg = _scale_error(scales)
+    msg === nothing || throw(InvalidFileFormat(msg))
     if calibrated
-        _validate_calibration(shift, scale)
+        msg = _calibration_error(shift, scale)
+        msg === nothing || throw(InvalidFileFormat(msg))
     end
     ncodes = dim == 0 ? 0 : blocked_len(n, bits, dim)
     codes = Vector{UInt8}(undef, ncodes)

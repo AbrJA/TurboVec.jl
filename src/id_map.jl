@@ -26,6 +26,7 @@ IdMapIndex(bit_width::Integer) =
 Base.length(index::IdMapIndex) = index.inner.n
 Base.isempty(index::IdMapIndex) = index.inner.n == 0
 dim_opt(index::IdMapIndex) = dim_opt(index.inner)
+is_lazy(index::IdMapIndex) = is_lazy(index.inner)
 dim(index::IdMapIndex) = index.inner.dim
 bit_width(index::IdMapIndex) = index.inner.bit_width
 scales(index::IdMapIndex) = index.inner.scales
@@ -33,9 +34,47 @@ tqplus_shift(index::IdMapIndex) = index.inner.tqplus_shift
 tqplus_scale(index::IdMapIndex) = index.inner.tqplus_scale
 prepare(index::IdMapIndex) = index
 calibration_state(index::IdMapIndex) = calibration_state(index.inner)
+is_calibrated(index::IdMapIndex) = is_calibrated(index.inner)
+calibration(index::IdMapIndex) = calibration(index.inner)
 
 """True if the index currently contains a vector with this external id."""
 contains_id(index::IdMapIndex, id::Integer) = haskey(index.id_to_slot, UInt64(id))
+
+"""Idiomatic membership: `id in index`."""
+Base.in(id::Integer, index::IdMapIndex) = contains_id(index, id)
+
+"""Iterate the external ids in slot order."""
+function Base.iterate(index::IdMapIndex, state::Int = 1)
+    state > length(index) ? nothing : (index.slot_to_id[state], state + 1)
+end
+
+"""`size(index) == (length(index), dim(index))`."""
+Base.size(index::IdMapIndex) = (length(index), dim(index))
+Base.size(index::IdMapIndex, d::Integer) =
+    d == 1 ? length(index) : d == 2 ? dim(index) : 1
+
+function Base.show(io::IO, index::IdMapIndex)
+    print(io, "IdMapIndex(")
+    if dim(index) == 0
+        print(io, "lazy, $(bit_width(index))-bit, $(length(index)) ids)")
+    else
+        print(io, "$(dim(index)) features, $(bit_width(index))-bit, ",
+              "$(length(index)) ids, ",
+              is_calibrated(index) ? "calibrated" : "uncalibrated", ")")
+    end
+end
+
+"""Deep copy (inner index, id tables)."""
+Base.copy(index::IdMapIndex) =
+    IdMapIndex(copy(index.inner), copy(index.slot_to_id), copy(index.id_to_slot))
+
+"""Drop every stored vector/id and the calibration; keep committed geometry."""
+function Base.empty!(index::IdMapIndex)
+    empty!(index.inner)
+    empty!(index.slot_to_id)
+    empty!(index.id_to_slot)
+    index
+end
 
 """
     batch_addable(index, ids) -> Bool
@@ -94,6 +133,13 @@ end
 
 add_with_ids!(index::IdMapIndex, X::AbstractMatrix{<:Real},
               ids::AbstractVector{<:Integer}) = add_with_ids!(index, Float32.(X), ids)
+
+"""Add one vector with one external id."""
+add_with_ids!(index::IdMapIndex, x::AbstractVector{Float32}, id::Integer) =
+    add_with_ids!(index, reshape(x, 1, :), UInt64[id])
+
+add_with_ids!(index::IdMapIndex, x::AbstractVector{<:Real}, id::Integer) =
+    add_with_ids!(index, reshape(Float32.(x), 1, :), UInt64[id])
 
 """Remove the vector with external `id`. Returns `true` if present."""
 function remove!(index::IdMapIndex, id::Integer)
@@ -160,6 +206,15 @@ search(index::IdMapIndex, queries::AbstractMatrix{Float32}, k::Integer,
 search(index::IdMapIndex, queries::AbstractMatrix{<:Real}, k::Integer;
        allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing) =
     search(index, Float32.(queries), k; allowlist = allowlist)
+
+"""Single-query convenience: returns `1 × k_eff` matrices."""
+search(index::IdMapIndex, q::AbstractVector{Float32}, k::Integer;
+       allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing) =
+    search(index, reshape(q, 1, :), k; allowlist = allowlist)
+
+search(index::IdMapIndex, q::AbstractVector{<:Real}, k::Integer;
+       allowlist::Union{Nothing,AbstractVector{<:Integer}} = nothing) =
+    search(index, reshape(Float32.(q), 1, :), k; allowlist = allowlist)
 
 """Fit a TQ+ calibration and re-encode stored rows."""
 function calibrate!(index::IdMapIndex, sample::AbstractMatrix{Float32})

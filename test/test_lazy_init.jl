@@ -7,7 +7,8 @@
     @testset "new_lazy starts with no dim" begin
         idx = TurboQuantIndex(4)
         @test dim_opt(idx) === nothing
-        @test dim(idx) == 0
+        @test is_lazy(idx)
+        @test size(idx, 2) == 0
         @test isempty(idx)
         @test_throws BitWidthOutOfRange TurboQuantIndex(0)
         @test_throws BitWidthOutOfRange TurboQuantIndex(5)
