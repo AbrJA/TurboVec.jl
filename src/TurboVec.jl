@@ -26,8 +26,8 @@ export add_with_ids!, calibration_state, codebook
 export write_index, load_index, write_idmap, load_idmap, to_bytes, from_bytes
 export from_parts, packed_codes, prepare, dim_opt, bit_width, scales,
        tqplus_shift, tqplus_scale, contains_id, external_ids, is_lazy
-export blocked_codes, codebook_for_write, serialized_len, packed_ready,
-       slots_ready, batch_addable, first_invalid_coord, is_calibrated, calibration
+export blocked_codes, codebook_for_write, serialized_len, is_packed_ready,
+       is_slots_ready, is_addable, first_invalid_coord, is_calibrated, calibration
 export MIN_INPUT_NORM, MIN_CALIBRATION_ROWS, RECOMMENDED_CALIBRATION_ROWS
 export TurboVecError, BitWidthOutOfRange, DimNotPositiveMultipleOf8, DimTooLarge,
        ZeroDim, DimMismatch, InvalidInputValue,

@@ -65,6 +65,8 @@ candidate by its stored renormalization scale.
 | `search(index, Q, k; mask = nothing)` | `k` nearest slots: `(scores, indices)` `nq × k_eff` |
 | `calibrate!(index, sample)` | Fit TQ+ from a `rows × dim` sample; re-encodes stored rows |
 | `calibration_state(index)` | `:uncalibrated` or `:calibrated` |
+| `is_calibrated(index)` / `calibration(index)` | Predicate / `(; shift, scale)` or `nothing` |
+| `codebook(bits, dim)` | Canonical Lloyd-Max codebook `(; boundaries, centroids)` |
 | `swap_remove!(index, slot)` | O(1) positional removal (returns moved-from slot) |
 | `IdMapIndex(dim, bits)` | Stable-id wrapper |
 | `add_with_ids!(index, X, ids)` | Add with `UInt64` external ids |
@@ -80,8 +82,8 @@ candidate by its stored renormalization scale.
 | `blocked_codes(index)` | Sequential blocked code bytes (the file payload) |
 | `codebook_for_write(index)` | Codebook arrays a file embeds |
 | `size(index)` / `size(index, d)`, `is_lazy`, `dim_opt`, `bit_width`, `scales`, `tqplus_shift`, `tqplus_scale` | Accessors (`size` is `(n, dim)`) |
-| `packed_ready` / `slots_ready` | Layout-state probes (always `true` here) |
-| `batch_addable(index, ids)` | Whether an id batch is addable |
+| `is_packed_ready` / `is_slots_ready` | Layout-state probes (always `true` here) |
+| `is_addable(index, ids)` | Whether an id batch is addable |
 | `first_invalid_coord(values, dim)` | First invalid coordinate (1-based) |
 | `MIN_INPUT_NORM`, `MIN_CALIBRATION_ROWS`, `RECOMMENDED_CALIBRATION_ROWS` | Constants |
 | `prepare(index)` | No-op; kept for API parity |
@@ -101,7 +103,10 @@ The port leans on Julia's own protocol rather than a bespoke API:
 
 * **Collections**: `length`, `isempty`, `size(idx) == (n, dim)`,
   `copy`, `empty!`, and a compact `show`. `IdMapIndex` also supports
-  `id in index` and iteration (`for id in index`).
+  `id in index`, iteration (`for id in index`) and `keys(index)`.
+* **Booleans**: predicates are named `is*` — `is_calibrated`, `is_lazy`,
+  `is_addable`, `is_packed_ready`, `is_slots_ready` — and multi-value
+  returns are named tuples (`calibration(idx)`, `codebook(bits, dim)`).
 * **Single vectors**: `add!(idx, x)`, `search(idx, q, k)` (returns
   `1 × k_eff` matrices) and `add_with_ids!(idx, x, id)` are overloads of
   the matrix forms.
@@ -295,15 +300,17 @@ julia --project=. dev/validate.jl          # bit-exactness check
 julia --project=. -t auto -e 'using Pkg; Pkg.test()'
 ```
 
-1697 assertions. The suite ports the applicable parts of turbovec's own
-suite — rotation golden bits, codebook determinism, kernel correctness,
-query-scale invariance, concurrent search, swap-remove, lazy init,
+The suite ports the applicable parts of turbovec's own suite — rotation
+golden bits, codebook determinism, kernel correctness, query-scale
+invariance, concurrent search, swap-remove, lazy init,
 filtering/allowlists, id-map semantics, state sequences, calibration
 and its bounds, `from_parts`, bytes I/O, the full public surface
-(accessors, IO-generic entry points, `serialized_len`, `batch_addable`)
-— plus recall against brute force. Rust-generated golden fixtures pin the full encode
-pipeline (rotation → codebook → quantization → bit packing) for 2/3/4-bit
-shapes, and the rotation/codebook goldens pin the deterministic
-primitives. Tests that pin SIMD byte-layouts, v7 crash
+(accessors, IO-generic entry points, `serialized_len`, `is_addable`,
+the Base protocol) — plus recall against brute force.
+Rust-generated golden fixtures pin the full encode pipeline (rotation →
+codebook → quantization → bit packing) for 2/3/4-bit shapes, and the
+rotation/codebook goldens pin the deterministic primitives. `Aqua`
+checks pass (no method ambiguities, undefined exports, unbound type
+parameters, piracy, stale deps, or missing compat entries). Tests that pin SIMD byte-layouts, v7 crash
 consistency, or the Rust on-disk format are not applicable to this
 port.

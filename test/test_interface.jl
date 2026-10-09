@@ -79,6 +79,7 @@
         @test !(999 in m)
         @test collect(m) == ids
         @test [id for id in m] == ids
+        @test keys(m) == ids
     end
 
     @testset "is_calibrated and calibration" begin

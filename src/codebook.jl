@@ -158,11 +158,15 @@ function lloyd_max(bits::Int, dim::Int, max_iter::Int, tol::Float64)
     (boundaries, centroids_f32)
 end
 
-const CODEBOOK_MEMO = Dict{Tuple{Int,Int},Tuple{Vector{Float32},Vector{Float32}}}()
+"""Named codebook arrays: `(boundaries = …, centroids = …)`."""
+const Codebook = NamedTuple{(:boundaries, :centroids),
+                           Tuple{Vector{Float32},Vector{Float32}}}
+
+const CODEBOOK_MEMO = Dict{Tuple{Int,Int},Codebook}()
 const CODEBOOK_LOCK = ReentrantLock()
 
 """
-    codebook(bits, dim) -> (boundaries, centroids)
+    codebook(bits, dim) -> (; boundaries, centroids)
 
 The canonical Lloyd-Max codebook for `bits ∈ {2,3,4}` and a positive
 multiple-of-8 `dim`. Memoized per `(bits, dim)`.
@@ -180,7 +184,8 @@ function codebook(bits::Int, dim::Int)
     finally
         unlock(CODEBOOK_LOCK)
     end
-    computed = lloyd_max(bits, dim, 200, 1.0e-12)
+    boundaries, centroids = lloyd_max(bits, dim, 200, 1.0e-12)
+    computed = (boundaries = boundaries, centroids = centroids)
     lock(CODEBOOK_LOCK)
     try
         CODEBOOK_MEMO[(bits, dim)] = computed

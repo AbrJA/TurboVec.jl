@@ -59,13 +59,13 @@
         @test_throws InvalidFileFormat load_idmap(IOBuffer(to_bytes(idx)))
     end
 
-    @testset "batch_addable" begin
+    @testset "is_addable" begin
         m = IdMapIndex(dim, bits)
         add_with_ids!(m, X[1:2, :], UInt64[10, 11])
-        @test batch_addable(m, UInt64[12, 13])
-        @test batch_addable(m, UInt64[])
-        @test !batch_addable(m, UInt64[10])
-        @test !batch_addable(m, UInt64[12, 12])
+        @test is_addable(m, UInt64[12, 13])
+        @test is_addable(m, UInt64[])
+        @test !is_addable(m, UInt64[10])
+        @test !is_addable(m, UInt64[12, 12])
     end
 
     @testset "first_invalid_coord" begin
@@ -84,8 +84,8 @@
     end
 
     @testset "state probes and constants" begin
-        @test packed_ready(idx)
-        @test slots_ready(IdMapIndex(dim, bits))
+        @test is_packed_ready(idx)
+        @test is_slots_ready(IdMapIndex(dim, bits))
         @test MIN_INPUT_NORM == 1.0f-10
         @test MIN_CALIBRATION_ROWS == 2
         @test RECOMMENDED_CALIBRATION_ROWS == 1000

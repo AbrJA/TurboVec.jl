@@ -48,6 +48,11 @@ function Base.iterate(index::IdMapIndex, state::Int = 1)
     state > length(index) ? nothing : (index.slot_to_id[state], state + 1)
 end
 
+"""The external ids as a vector, in slot order (a copy)."""
+Base.keys(index::IdMapIndex) = copy(index.slot_to_id)
+
+Base.eltype(::Type{IdMapIndex}) = UInt64
+
 """`size(index) == (length(index), dim(index))`."""
 Base.size(index::IdMapIndex) = (length(index), dim(index))
 Base.size(index::IdMapIndex, d::Integer) =
@@ -77,12 +82,12 @@ function Base.empty!(index::IdMapIndex)
 end
 
 """
-    batch_addable(index, ids) -> Bool
+    is_addable(index, ids) -> Bool
 
 True when `ids` has no duplicates and none of them is already present —
 exactly the pair of conditions [`add_with_ids!`](@ref) validates.
 """
-function batch_addable(index::IdMapIndex, ids::AbstractVector{<:Integer})
+function is_addable(index::IdMapIndex, ids::AbstractVector{<:Integer})
     seen = Set{UInt64}()
     for id in ids
         u = UInt64(id)
@@ -93,12 +98,12 @@ function batch_addable(index::IdMapIndex, ids::AbstractVector{<:Integer})
 end
 
 """
-    slots_ready(index) -> Bool
+    is_slots_ready(index) -> Bool
 
 Always `true`: this port maintains the id tables eagerly, so there is no
 lazy slot-map build to wait for. Kept for API parity with turbovec.
 """
-slots_ready(index::IdMapIndex) = true
+is_slots_ready(index::IdMapIndex) = true
 
 """The external ids in slot order (slot order itself is an implementation detail)."""
 external_ids(index::IdMapIndex) = copy(index.slot_to_id)

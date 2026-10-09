@@ -323,13 +323,13 @@ calibration(index::TurboQuantIndex) =
 prepare(index::TurboQuantIndex) = index
 
 """
-    packed_ready(index) -> Bool
+    is_packed_ready(index) -> Bool
 
 Always `true`: this port keeps a single materialized code layout, so
 there is no lazy packed/blocked duality to report on. Kept for API
 parity with turbovec.
 """
-packed_ready(index::TurboQuantIndex) = true
+is_packed_ready(index::TurboQuantIndex) = true
 
 """
     blocked_codes(index) -> Vector{UInt8}
@@ -381,7 +381,7 @@ function Base.empty!(index::TurboQuantIndex)
 end
 
 """
-    codebook_for_write(index) -> (boundaries, centroids)
+    codebook_for_write(index) -> (; boundaries, centroids)
 
 The codebook arrays a file embeds. Populated indexes return the real
 Lloyd-Max codebook; lazy or empty ones return correctly-sized zero
@@ -390,7 +390,8 @@ placeholders, which loaders ignore.
 function codebook_for_write(index::TurboQuantIndex)
     n_levels = 1 << index.bit_width
     (index.dim == 0 || index.n == 0) &&
-        return (zeros(Float32, n_levels - 1), zeros(Float32, n_levels))
+        return (boundaries = zeros(Float32, n_levels - 1),
+                centroids = zeros(Float32, n_levels))
     codebook(index.bit_width, index.dim)
 end
 
