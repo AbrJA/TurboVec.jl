@@ -8,7 +8,7 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 
 [compat]
 Aqua = "0.8"
-JET = "0.12"
+JET = "0.12, 0.13"
 JuliaFormatter = "2"
 PrecompileTools = "1"
 Random = "1"
